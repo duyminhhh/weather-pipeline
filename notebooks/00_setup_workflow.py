@@ -5,6 +5,11 @@
 # MAGIC Notebook này dùng Databricks REST API để tạo **Workflow (Job)**
 # MAGIC lên lịch chạy toàn bộ pipeline mỗi 6 giờ — không cần Airflow hay Docker.
 # MAGIC
+# MAGIC **Thứ tự chạy:**
+# MAGIC ```
+# MAGIC weather_crawler  →  bronze_ingest  →  silver_transform  →  gold_aggregate  →  ml_train
+# MAGIC ```
+# MAGIC
 # MAGIC **Chạy 1 lần duy nhất để setup.**
 
 # COMMAND ----------
@@ -12,7 +17,6 @@
 import requests
 import json
 
-# ── Cấu hình ────────────────────────────────────────────────────────────────
 HOST  = "https://" + spark.conf.get("spark.databricks.workspaceUrl")
 TOKEN = dbutils.notebook.entry_point.getDbutils().notebook().getContext().apiToken().get()
 
@@ -23,24 +27,17 @@ HEADERS = {
     "Content-Type": "application/json",
 }
 
-print(f"Host: {HOST}")
-print(f"Workspace: {WORKSPACE_PATH}")
+print(f"Host      : {HOST}")
+print(f"Workspace : {WORKSPACE_PATH}")
 
 # COMMAND ----------
 # MAGIC %md
-# MAGIC ## Kiểm tra loại compute đang chạy
-
-# COMMAND ----------
-# MAGIC %md
-# MAGIC ## Build job_config cho Serverless compute
+# MAGIC ## Build job_config — weather_crawler chạy đầu tiên
 
 # COMMAND ----------
 
 def make_task(task_key, notebook_name, depends_on=None, timeout=1800, retries=2):
-    """
-    Tạo task config cho Serverless compute.
-    KHÔNG set existing_cluster_id — workspace này chỉ support serverless.
-    """
+    """Tạo task config cho Serverless compute."""
     task = {
         "task_key": task_key,
         "notebook_task": {
@@ -61,23 +58,31 @@ job_config = {
     "tags": {"project": "weather", "env": "free-edition"},
 
     "tasks": [
-        make_task("bronze_ingest",   "01_bronze_ingest"),
-        make_task("silver_transform","02_silver_transform", depends_on=["bronze_ingest"]),
-        make_task("gold_aggregate",  "03_gold_aggregate",   depends_on=["silver_transform"]),
-        make_task("ml_train",        "04_ml_train",         depends_on=["gold_aggregate"],
+        # ① Crawler chạy TRƯỚC TIÊN — fetch data, ghi weather_latest.json
+        make_task(
+            "weather_crawler",
+            "weather_crawler",
+            depends_on=None,   # không phụ thuộc ai — chạy đầu tiên
+            timeout=600,       # 10 phút là đủ
+            retries=3,         # retry nếu network lỗi
+        ),
+
+        # ② Bronze → ③ Silver → ④ Gold → ⑤ ML (mỗi bước phụ thuộc bước trước)
+        make_task("bronze_ingest",    "01_bronze_ingest",    depends_on=["weather_crawler"]),
+        make_task("silver_transform", "02_silver_transform", depends_on=["bronze_ingest"]),
+        make_task("gold_aggregate",   "03_gold_aggregate",   depends_on=["silver_transform"]),
+        make_task("ml_train",         "04_ml_train",         depends_on=["gold_aggregate"],
                   timeout=3600, retries=1),
     ],
 
-    # ── Schedule: mỗi 6 giờ ──────────────────────────────────────────────────
-    # Databricks Quartz format: "Giây Phút Giờ Ngày Tháng Thứ"
-    # "0 0 0/6 * * ?" = mỗi 6 tiếng bắt đầu từ 0:00 (0, 6, 12, 18 UTC+7)
+    # Schedule: mỗi 6 giờ (0:00, 6:00, 12:00, 18:00 Asia/Ho_Chi_Minh)
     "schedule": {
         "quartz_cron_expression": "0 0 0/6 * * ?",
         "timezone_id": "Asia/Ho_Chi_Minh",
         "pause_status": "UNPAUSED",
     },
 
-    # Uncomment nếu muốn nhận email khi job thất bại:
+    # Uncomment để nhận email khi job thất bại:
     # "email_notifications": {
     #     "on_failure": ["your@email.com"],
     #     "no_alert_for_skipped_runs": True,
@@ -93,7 +98,6 @@ print(json.dumps(job_config, indent=2, ensure_ascii=False))
 
 # COMMAND ----------
 
-# Kiểm tra job đã tồn tại chưa
 resp = requests.get(f"{HOST}/api/2.1/jobs/list", headers=HEADERS)
 resp.raise_for_status()
 existing_job = next(
@@ -118,7 +122,7 @@ else:
     r = requests.post(f"{HOST}/api/2.1/jobs/create", headers=HEADERS, json=job_config)
     if not r.ok:
         print(f"Lỗi tạo job: {r.status_code}")
-        print(r.json())   # ← In ra lỗi chi tiết từ Databricks
+        print(r.json())
         r.raise_for_status()
     job_id = r.json()["job_id"]
     print(f"✓ Job created — job_id: {job_id}")
@@ -144,6 +148,7 @@ if not run.ok:
 run_id = run.json()["run_id"]
 print(f"✓ Pipeline triggered — run_id: {run_id}")
 print(f"→ Theo dõi tại: {HOST}/jobs/{job_id}/runs/{run_id}")
+print(f"\nThứ tự chạy: weather_crawler → bronze_ingest → silver_transform → gold_aggregate → ml_train")
 
 # COMMAND ----------
 # MAGIC %md
