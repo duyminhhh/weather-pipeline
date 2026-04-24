@@ -1,469 +1,487 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # 04 — ML: Weather Forecast Model
+# MAGIC # 04 — ML Train: Dự báo nhiệt độ ngày hôm sau
 # MAGIC
-# MAGIC **Thay đổi:**
-# MAGIC - Đọc từ `gold_ml_features` (bảng đã feature-engineered ở 03_gold)
-# MAGIC - Pipeline đơn giản, đầy đủ: load → train → evaluate → predict
-# MAGIC - So sánh 3 model: Ridge / RandomForest / GradientBoosting
-# MAGIC - Lưu kết quả predict ra `ml_weather_predictions` + export CSV cho Streamlit
-# MAGIC - Export thêm `ml_model_metrics.csv` và `ml_forecast_7d.csv` cho dashboard
+# MAGIC **Pipeline:**
+# MAGIC 1. Load `gold_ml_features` từ Gold layer
+# MAGIC 2. Kiểm tra data đủ để train không (guard sớm, lỗi rõ ràng)
+# MAGIC 3. Feature selection + fillna(mean) cho lag/rolling NaN
+# MAGIC 4. Train/test split theo thời gian (80/20) — có fallback khi data ít
+# MAGIC 5. Train 3 models: LinearRegression · KMeans (cluster-mean) · RandomForest
+# MAGIC 6. Evaluate + chọn model tốt nhất theo RMSE
+# MAGIC 7. Log vào MLflow
+# MAGIC 8. Predict toàn bộ dataset + forecast ngày mai mỗi city
+# MAGIC 9. Lưu Delta + export CSV cho Streamlit
 
 # COMMAND ----------
 
-import warnings
-import json
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta
-
 import mlflow
 import mlflow.sklearn
-
-from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
-from sklearn.linear_model import Ridge
-from sklearn.model_selection import train_test_split, cross_val_score
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
-from sklearn.pipeline import Pipeline
-from sklearn.impute import SimpleImputer
-from sklearn.preprocessing import LabelEncoder
-
+import warnings
 warnings.filterwarnings("ignore")
+
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.linear_model import LinearRegression
+from sklearn.cluster import KMeans
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler, LabelEncoder
+from sklearn.impute import SimpleImputer
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 
 CATALOG = "workspace"
 SCHEMA  = "weather_pipeline"
 
 GOLD_ML_TABLE    = f"{CATALOG}.{SCHEMA}.gold_ml_features"
-GOLD_DAILY_TABLE = f"{CATALOG}.{SCHEMA}.gold_weather_daily"
-PRED_TABLE       = f"{CATALOG}.{SCHEMA}.ml_weather_predictions"
-METRICS_TABLE    = f"{CATALOG}.{SCHEMA}.ml_model_metrics"
+ML_PRED_TABLE    = f"{CATALOG}.{SCHEMA}.gold_ml_predictions"
+ML_METRICS_TABLE = f"{CATALOG}.{SCHEMA}.gold_ml_metrics"
+ML_FEATIMP_TABLE = f"{CATALOG}.{SCHEMA}.gold_ml_feature_importance"
+ML_FULLPRED_TABLE= f"{CATALOG}.{SCHEMA}.gold_ml_full_predictions"
+ML_FORECAST_TABLE= f"{CATALOG}.{SCHEMA}.gold_ml_forecast"
 
 NOTEBOOK_DIR   = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
 NOTEBOOK_DIR   = "/".join(NOTEBOOK_DIR.split("/")[:-1])
-EXPORT_FS_PATH = f"file:/Workspace{NOTEBOOK_DIR}/exports"
-
-print("✓ Imports OK")
-
-# COMMAND ----------
-# MAGIC %md
-# MAGIC ## 1. Load data từ Gold ML Features
-
-# COMMAND ----------
-
-df_ml    = spark.table(GOLD_ML_TABLE).toPandas()
-df_daily = spark.table(GOLD_DAILY_TABLE).toPandas()
-
-print(f"Gold ML features : {len(df_ml)} rows,  {df_ml.shape[1]} columns")
-print(f"Gold daily       : {len(df_daily)} rows")
-print(f"Thành phố        : {df_ml['city'].nunique()}")
-print(f"\nCác cột:\n{list(df_ml.columns)}")
-
-# COMMAND ----------
-# MAGIC %md
-# MAGIC ## 2. Chuẩn bị features & target
-
-# COMMAND ----------
-
-# Label encode city
-le = LabelEncoder()
-df_ml["city_enc"] = le.fit_transform(df_ml["city"])
-known_cities = list(le.classes_)
-print(f"✓ Cities ({len(known_cities)}): {known_cities}")
-
-# Danh sách features dùng cho huấn luyện
-FEATURE_COLS = [
-    # Categorical/encoded
-    "city_enc",
-    # Temporal
-    "month", "day_of_year", "day_of_week", "week_of_year", "quarter", "is_weekend",
-    "month_sin", "month_cos", "doy_sin", "doy_cos",
-    # Weather condition
-    "avg_humidity", "avg_pressure_hpa", "avg_wind_speed_kmh",
-    "avg_cloud_pct", "avg_uv_index", "avg_precipitation_mm",
-    # Lag features
-    "temp_lag1", "temp_lag2", "temp_lag3", "temp_lag7",
-    "humidity_lag1", "humidity_lag2",
-    # Rolling stats
-    "temp_roll_mean_3d", "temp_roll_mean_7d",
-    "temp_roll_std_3d",
-    # Derived
-    "temp_range", "heat_index", "comfort_score",
-]
-
-TARGET_COL = "target_next_temp"   # nhiệt độ ngày hôm sau
-
-# Chỉ giữ features thực sự có trong bảng
-FEATURE_COLS = [f for f in FEATURE_COLS if f in df_ml.columns]
-print(f"\n✓ Features sử dụng ({len(FEATURE_COLS)}):")
-for f in FEATURE_COLS:
-    print(f"  - {f}")
-
-# Lọc rows có đủ target + features
-df_clean = df_ml.dropna(subset=[TARGET_COL] + FEATURE_COLS)
-print(f"\n✓ Rows sạch: {len(df_clean)} / {len(df_ml)}")
-
-if len(df_clean) < 5:
-    print("⚠️  Chưa đủ data để train (cần ≥5 rows). Pipeline tiếp tục nhưng metrics chưa có ý nghĩa.")
-    print("   → Crawl thêm dữ liệu nhiều ngày để model tốt hơn.")
-
-X = df_clean[FEATURE_COLS]
-y = df_clean[TARGET_COL]
-
-# COMMAND ----------
-# MAGIC %md
-# MAGIC ## 3. Train/Test Split
-
-# COMMAND ----------
-
-n = len(df_clean)
-if n < 10:
-    # Quá ít: dùng toàn bộ làm train (không split)
-    X_train, X_test = X, X
-    y_train, y_test = y, y
-    CV_FOLDS = min(3, n) if n >= 3 else 2
-    print(f"⚠️  Chỉ {n} rows — dùng toàn bộ làm train+test")
-elif n < 30:
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-    CV_FOLDS = 3
-else:
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-    CV_FOLDS = 5
-
-print(f"Train : {len(X_train)} rows")
-print(f"Test  : {len(X_test)} rows")
-print(f"CV    : {CV_FOLDS}-fold")
-
-# COMMAND ----------
-# MAGIC %md
-# MAGIC ## 4. Định nghĩa Models
-
-# COMMAND ----------
-
-def make_pipeline(estimator):
-    return Pipeline([
-        ("imputer", SimpleImputer(strategy="median")),
-        ("model",   estimator),
-    ])
-
-MODELS = {
-    "Ridge": make_pipeline(
-        Ridge(alpha=10.0)
-    ),
-    "RandomForest": make_pipeline(
-        RandomForestRegressor(n_estimators=200, max_depth=15, random_state=42, n_jobs=-1)
-    ),
-    "GradientBoosting": make_pipeline(
-        GradientBoostingRegressor(n_estimators=200, max_depth=4, learning_rate=0.05, random_state=42)
-    ),
-}
-
-print(f"✓ Định nghĩa {len(MODELS)} models: {list(MODELS.keys())}")
-
-# COMMAND ----------
-# MAGIC %md
-# MAGIC ## 5. Training + Evaluation
-
-# COMMAND ----------
-from sklearn.model_selection import KFold
-
-mlflow.set_experiment("/Shared/weather-pipeline/weather_forecast")
-
-results  = {}
-cv_folds = KFold(n_splits=CV_FOLDS, shuffle=True, random_state=42) if CV_FOLDS >= 2 else None
-
-
-print(f"\n{'Model':<20} {'MAE':>8} {'RMSE':>8} {'R²':>7} {'CV MAE':>10}")
-print("-" * 60)
-
-for name, pipeline in MODELS.items():
-    with mlflow.start_run(run_name=name):
-        # Train
-        pipeline.fit(X_train, y_train)
-
-        # Test metrics
-        y_pred = pipeline.predict(X_test)
-        mae  = mean_absolute_error(y_test, y_pred)
-        rmse = mean_squared_error(y_test, y_pred) ** 0.5
-        r2   = r2_score(y_test, y_pred)
-
-        # Cross-validation MAE
-        if cv_folds and len(X) >= CV_FOLDS * 2:
-            cv_scores = cross_val_score(
-                pipeline, X, y,
-                cv=cv_folds, scoring="neg_mean_absolute_error", n_jobs=-1
-            )
-            cv_mae_mean = -cv_scores.mean()
-            cv_mae_std  = cv_scores.std()
-        else:
-            cv_mae_mean = mae
-            cv_mae_std  = 0.0
-
-        # MLflow logging
-        mlflow.log_params({"model_type": name, "n_features": len(FEATURE_COLS), "cv_folds": CV_FOLDS})
-        mlflow.log_metrics({"mae": mae, "rmse": rmse, "r2": r2, "cv_mae": cv_mae_mean})
-        mlflow.sklearn.log_model(pipeline, f"model_{name}")
-
-        results[name] = {
-            "model": pipeline, "mae": mae, "rmse": rmse, "r2": r2,
-            "cv_mae_mean": cv_mae_mean, "cv_mae_std": cv_mae_std,
-        }
-        print(f"{name:<20} {mae:>8.3f} {rmse:>8.3f} {r2:>7.3f} {cv_mae_mean:>10.3f}°C")
-
-# Chọn model tốt nhất (MAE thấp nhất)
-best_name  = min(results, key=lambda k: results[k]["mae"])
-best_model = results[best_name]["model"]
-best_mae   = results[best_name]["mae"]
-
-print(f"\n✅ Model tốt nhất: {best_name}  (MAE = {best_mae:.3f}°C)")
-
-# COMMAND ----------
-# MAGIC %md
-# MAGIC ## 6. Lưu metrics vào Delta
-
-# COMMAND ----------
-
-metrics_rows = []
-for name, m in results.items():
-    metrics_rows.append({
-        "model_name":    name,
-        "mae":           round(m["mae"], 4),
-        "rmse":          round(m["rmse"], 4),
-        "r2":            round(m["r2"], 4),
-        "cv_mae_mean":   round(m["cv_mae_mean"], 4),
-        "cv_mae_std":    round(m["cv_mae_std"], 4),
-        "is_best":       (name == best_name),
-        "trained_at":    datetime.now().isoformat(),
-        "n_train":       len(X_train),
-        "n_test":        len(X_test),
-        "n_features":    len(FEATURE_COLS),
-    })
-
-df_metrics = spark.createDataFrame(pd.DataFrame(metrics_rows))
-(
-    df_metrics.write.format("delta").mode("overwrite")
-    .option("overwriteSchema", "true").saveAsTable(METRICS_TABLE)
-)
-print(f"✓ Model metrics saved: {METRICS_TABLE}")
-
-# COMMAND ----------
-# MAGIC %md
-# MAGIC ## 7. Predict — Dự đoán thời tiết tương lai
-
-# COMMAND ----------
-
-def get_city_baseline(city: str) -> dict:
-    """Lấy giá trị thời tiết gần nhất của thành phố làm input dự đoán."""
-    city_rows = df_daily[df_daily["city"] == city].sort_values("date", ascending=False)
-    if len(city_rows) == 0:
-        return {
-            "avg_humidity": 70, "avg_pressure_hpa": 1013,
-            "avg_wind_speed_kmh": 15, "avg_cloud_pct": 50,
-            "avg_uv_index": 5, "avg_precipitation_mm": 0,
-            "recent_temps": [25.0],
-        }
-    recent = city_rows.head(7)
-    latest = recent.iloc[0]
-    return {
-        "avg_humidity":         float(latest.get("avg_humidity", 70)),
-        "avg_pressure_hpa":     float(latest.get("avg_pressure_hpa", 1013)),
-        "avg_wind_speed_kmh":   float(latest.get("avg_wind_speed_kmh", 15)),
-        "avg_cloud_pct":        float(latest.get("avg_cloud_pct", 50)),
-        "avg_uv_index":         float(latest.get("avg_uv_index", 5)),
-        "avg_precipitation_mm": float(latest.get("avg_precipitation_mm", 0)),
-        "temp_range":           float(latest.get("max_temp_c", 28) - latest.get("min_temp_c", 22)),
-        "recent_temps":         recent["avg_temp_c"].tolist(),
-    }
-
-
-def predict_city(city: str, days_ahead: int) -> dict | None:
-    """Dự đoán nhiệt độ cho city vào N ngày tới."""
-    if city not in known_cities:
-        return None
-
-    baseline    = get_city_baseline(city)
-    target_date = datetime.now() + timedelta(days=days_ahead)
-    temps       = baseline["recent_temps"]
-    avg_temp    = np.mean(temps) if temps else 25.0
-
-    # Build feature row
-    row = {
-        "city_enc":             le.transform([city])[0],
-        "month":                target_date.month,
-        "day_of_year":          target_date.timetuple().tm_yday,
-        "day_of_week":          target_date.weekday(),
-        "week_of_year":         int(target_date.isocalendar()[1]),
-        "quarter":              (target_date.month - 1) // 3 + 1,
-        "is_weekend":           int(target_date.weekday() >= 5),
-        "month_sin":            np.sin(2 * np.pi * target_date.month / 12),
-        "month_cos":            np.cos(2 * np.pi * target_date.month / 12),
-        "doy_sin":              np.sin(2 * np.pi * target_date.timetuple().tm_yday / 365),
-        "doy_cos":              np.cos(2 * np.pi * target_date.timetuple().tm_yday / 365),
-        "avg_humidity":         baseline["avg_humidity"],
-        "avg_pressure_hpa":     baseline["avg_pressure_hpa"],
-        "avg_wind_speed_kmh":   baseline["avg_wind_speed_kmh"],
-        "avg_cloud_pct":        baseline["avg_cloud_pct"],
-        "avg_uv_index":         baseline["avg_uv_index"],
-        "avg_precipitation_mm": baseline["avg_precipitation_mm"],
-        "temp_lag1":            temps[0] if len(temps) > 0 else avg_temp,
-        "temp_lag2":            temps[1] if len(temps) > 1 else avg_temp,
-        "temp_lag3":            temps[2] if len(temps) > 2 else avg_temp,
-        "temp_lag7":            temps[-1] if temps else avg_temp,
-        "humidity_lag1":        baseline["avg_humidity"],
-        "humidity_lag2":        baseline["avg_humidity"],
-        "temp_roll_mean_3d":    np.mean(temps[:3]) if len(temps) >= 3 else avg_temp,
-        "temp_roll_mean_7d":    np.mean(temps),
-        "temp_roll_std_3d":     float(np.std(temps[:3])) if len(temps) >= 3 else 0.5,
-        "temp_range":           baseline.get("temp_range", 6.0),
-        "heat_index":           avg_temp + 2.0,   # ước tính đơn giản
-        "comfort_score":        max(0, min(100, 100 - 4 * abs(avg_temp - 22))),
-    }
-
-    X_pred = pd.DataFrame([{f: row.get(f, 0.0) for f in FEATURE_COLS}])
-    pred   = best_model.predict(X_pred)[0]
-
-    # Khoảng tin cậy: MAE × (1 + 10% mỗi ngày thêm)
-    margin = best_mae * (1 + (days_ahead - 1) * 0.10)
-
-    # Điều kiện ước tính từ cloud cover
-    cloud = baseline["avg_cloud_pct"]
-    if   cloud < 20: cond = "Nắng đẹp ☀️"
-    elif cloud < 50: cond = "Ít mây 🌤️"
-    elif cloud < 80: cond = "Nhiều mây ⛅"
-    else:            cond = "Có thể mưa 🌧️"
-
-    return {
-        "city":                 city,
-        "target_date":          target_date.strftime("%Y-%m-%d"),
-        "days_ahead":           days_ahead,
-        "predicted_temp_c":     round(float(pred), 1),
-        "confidence_low":       round(float(pred - margin), 1),
-        "confidence_high":      round(float(pred + margin), 1),
-        "estimated_condition":  cond,
-        "current_temp_c":       round(avg_temp, 1),
-        "temp_change":          round(float(pred) - round(avg_temp, 1), 1),
-        "model_used":           best_name,
-        "model_mae":            round(best_mae, 3),
-        "predicted_at":         datetime.now().isoformat(),
-    }
-
-# COMMAND ----------
-# MAGIC %md
-# MAGIC ## 8. Demo dự đoán — Ngày mai và 7 ngày tới
-
-# COMMAND ----------
-
-print("=" * 68)
-print("  DỰ ĐOÁN THỜI TIẾT  —  Demo")
-print("=" * 68)
-print(f"\n{'City':<22} {'Ngày':>12} {'Dự báo':>8} {'Khoảng':>16} {'Thay đổi':>10}  Điều kiện")
-print("-" * 90)
-
-for city in known_cities:
-    pred = predict_city(city, days_ahead=1)
-    if pred:
-        change_str = f"+{pred['temp_change']}" if pred["temp_change"] >= 0 else str(pred["temp_change"])
-        conf_str   = f"[{pred['confidence_low']:.1f} – {pred['confidence_high']:.1f}]"
-        print(f"  {city:<20} {pred['target_date']} {pred['predicted_temp_c']:>7.1f}°C {conf_str:>16} {change_str:>9}°C  {pred['estimated_condition']}")
-
-print(f"\n\n  7 NGÀY TỚI — {known_cities[0] if known_cities else '?'}:")
-print("-" * 60)
-if known_cities:
-    for d in range(1, 8):
-        pred = predict_city(known_cities[0], days_ahead=d)
-        if pred:
-            print(
-                f"  +{d} ngày ({pred['target_date']})  "
-                f"{pred['predicted_temp_c']:>5.1f}°C  "
-                f"[{pred['confidence_low']:.1f} – {pred['confidence_high']:.1f}]  "
-                f"{pred['estimated_condition']}"
-            )
-
-# COMMAND ----------
-# MAGIC %md
-# MAGIC ## 9. Lưu toàn bộ predictions vào Delta + Export CSV
-
-# COMMAND ----------
-
-# Dự đoán tất cả city × 7 ngày
-all_preds = []
-for city in known_cities:
-    for d in range(1, 8):
-        p = predict_city(city, days_ahead=d)
-        if p:
-            all_preds.append(p)
-
-print(f"Tổng predictions: {len(all_preds)}  ({len(known_cities)} cities × 7 ngày)")
-
-if all_preds:
-    from pyspark.sql.functions import current_timestamp as _now
-    df_pred = spark.createDataFrame(pd.DataFrame(all_preds))
-    (
-        df_pred.write.format("delta").mode("overwrite")
-        .option("overwriteSchema", "true").saveAsTable(PRED_TABLE)
-    )
-    print(f"✅ Predictions saved → {PRED_TABLE}")
-    df_pred.orderBy("city", "days_ahead").show(14, truncate=False)
-
-# COMMAND ----------
-# MAGIC %md
-# MAGIC ## 10. Export CSV cho Streamlit
-
-# COMMAND ----------
+EXPORT_WS_PATH = f"/Workspace{NOTEBOOK_DIR}/exports"
+EXPORT_FS_PATH = f"file:{EXPORT_WS_PATH}"
 
 dbutils.fs.mkdirs(EXPORT_FS_PATH)
 
-def export_df_csv(spark_table: str, filename: str):
-    rows = spark.table(spark_table).take(1)
-    if not rows:
-        print(f"⏭  {filename} — bảng trống")
-        return
-    csv = spark.table(spark_table).toPandas().to_csv(index=False)
-    dbutils.fs.put(f"{EXPORT_FS_PATH}/{filename}", csv, overwrite=True)
-    print(f"✓ Exported: {filename}")
+# COMMAND ----------
+# MAGIC %md
+# MAGIC ## 1. Load data + Guard checks
 
-export_df_csv(PRED_TABLE,    "ml_forecast_7d.csv")       # dự báo 7 ngày
-export_df_csv(METRICS_TABLE, "ml_model_metrics.csv")     # hiệu suất từng model
+# COMMAND ----------
 
-# Export feature importance (RandomForest / GradientBoosting)
-fi_data = []
-for name in ["RandomForest", "GradientBoosting"]:
-    if name in results:
-        estimator = results[name]["model"].named_steps["model"]
-        if hasattr(estimator, "feature_importances_"):
-            for feat, imp in zip(FEATURE_COLS, estimator.feature_importances_):
-                fi_data.append({"model": name, "feature": feat, "importance": round(float(imp), 6)})
+# ── Load toàn bộ gold_ml_features ────────────────────────────────────────────
+try:
+    pdf_raw = spark.table(GOLD_ML_TABLE).toPandas()
+except Exception as e:
+    raise RuntimeError(
+        f"Khong doc duoc {GOLD_ML_TABLE}. Hay chay 03_gold_aggregate truoc.\n{e}"
+    )
 
-if fi_data:
-    fi_csv = pd.DataFrame(fi_data).sort_values(["model","importance"], ascending=[True,False]).to_csv(index=False)
-    dbutils.fs.put(f"{EXPORT_FS_PATH}/ml_feature_importance.csv", fi_csv, overwrite=True)
-    print("✓ Exported: ml_feature_importance.csv")
+print(f"gold_ml_features: {pdf_raw.shape}")
+print(f"Cities: {sorted(pdf_raw['city'].unique())}")
+
+if len(pdf_raw) == 0:
+    raise ValueError(
+        "gold_ml_features trong! "
+        "Pipeline can chay it nhat 2 ngay lien tiep de co du lieu train."
+    )
+
+# ── Chỉ dùng hàng có target ──────────────────────────────────────────────────
+pdf_raw["date"] = pd.to_datetime(pdf_raw["date"])
+pdf_trainable = pdf_raw.dropna(subset=["target_next_temp"]).copy()
+pdf_trainable = pdf_trainable.sort_values(["city", "date"]).reset_index(drop=True)
+
+print(f"Rows co target_next_temp: {len(pdf_trainable)} / {len(pdf_raw)}")
+print(f"Date range: {pdf_trainable['date'].min().date()} -> {pdf_trainable['date'].max().date()}")
+
+if len(pdf_trainable) == 0:
+    raise ValueError(
+        "Khong co row nao co target_next_temp! "
+        "Can it nhat 2 ngay du lieu lien tiep moi city. "
+        "Hay chay lai pipeline sau khi co them du lieu."
+    )
 
 # COMMAND ----------
 # MAGIC %md
-# MAGIC ## 11. Tóm tắt
+# MAGIC ## 2. Feature Selection + Preprocessing
 
 # COMMAND ----------
 
-print("=" * 65)
-print("  KẾT QUẢ TRAINING")
-print("=" * 65)
-print(f"  Training samples : {len(X_train)}")
-print(f"  Test samples     : {len(X_test)}")
-print(f"  Features used    : {len(FEATURE_COLS)}")
-print(f"  Models trained   : {len(results)}")
-print()
-print(f"  {'Model':<22} {'MAE':>8} {'RMSE':>8} {'R²':>7}")
-print("  " + "-" * 50)
-for name, m in sorted(results.items(), key=lambda x: x[1]["mae"]):
-    tag = " ← BEST" if name == best_name else ""
-    print(f"  {name:<22} {m['mae']:>7.3f}°C {m['rmse']:>7.3f}°C {m['r2']:>6.3f}{tag}")
-print()
-print(f"  Best model       : {best_name}")
-print(f"  Best MAE         : {best_mae:.3f}°C")
-print(f"  Predictions      : {len(all_preds)} ({len(known_cities)} cities × 7 days)")
-print()
-print(f"  CSV exports:")
-print(f"    ml_forecast_7d.csv       → dự báo 7 ngày × tất cả thành phố")
-print(f"    ml_model_metrics.csv     → so sánh hiệu suất model")
-print(f"    ml_feature_importance.csv→ tầm quan trọng features")
-print("=" * 65)
+# Tất cả features có thể dùng (03 đã tính sẵn)
+CANDIDATE_FEATURES = [
+    # Thời tiết hiện tại
+    "avg_temp_c", "avg_feels_like_c", "avg_humidity",
+    "avg_pressure_hpa", "avg_wind_speed_kmh", "max_wind_speed_kmh",
+    "avg_cloud_pct", "avg_precipitation_mm", "avg_uv_index",
+    # Derived
+    "temp_range", "heat_index", "comfort_score", "weather_severity",
+    # Temporal
+    "month_sin", "month_cos", "doy_sin", "doy_cos",
+    "day_of_week", "is_weekend", "quarter",
+    # Lag
+    "temp_lag1", "temp_lag2", "temp_lag3", "temp_lag7",
+    "humidity_lag1", "humidity_lag3",
+    # Rolling
+    "temp_roll_mean_3d", "temp_roll_mean_7d",
+    "temp_roll_std_3d",  "temp_roll_std_7d",
+    "precip_roll_sum_3d", "precip_roll_sum_7d",
+]
+
+# Chỉ dùng cột thực sự tồn tại trong data
+FEATURE_COLS = [c for c in CANDIDATE_FEATURES if c in pdf_trainable.columns]
+print(f"Features su dung: {len(FEATURE_COLS)}")
+print(FEATURE_COLS)
+
+# Label encode city (categorical → numeric)
+le = LabelEncoder()
+pdf_trainable["city_encoded"] = le.fit_transform(pdf_trainable["city"])
+ALL_FEATURES = FEATURE_COLS + ["city_encoded"]
+
+# ── Train/test split theo thời gian (80/20) ──────────────────────────────────
+# Không dùng random split để giữ tính thời gian — luôn test trên data mới nhất
+split_date = pd.to_datetime(pdf_trainable["date"].quantile(0.80, interpolation="nearest"))
+train_mask = pdf_trainable["date"] <= split_date
+test_mask  = ~train_mask
+
+train = pdf_trainable[train_mask].copy()
+test  = pdf_trainable[test_mask].copy()
+
+# Fallback: nếu test rỗng (data quá ít), dùng 20% cuối của train làm test
+if len(test) == 0:
+    n_test = max(1, int(len(pdf_trainable) * 0.20))
+    train  = pdf_trainable.iloc[:-n_test].copy()
+    test   = pdf_trainable.iloc[-n_test:].copy()
+    print(f"FALLBACK split: toan bo data <= split_date, dung {n_test} rows cuoi lam test.")
+
+# Guard cuối: đảm bảo cả 2 set đều có data
+assert len(train) > 0, "Train set rong sau split! Can them du lieu."
+assert len(test)  > 0, "Test set rong sau split! Can them du lieu."
+
+# ── Impute NaN ────────────────────────────────────────────────────────────────
+# Dùng SimpleImputer thay vì fillna(mean) thủ công:
+# fillna(mean) thất bại khi cột toàn NaN trong train → mean = NaN → vẫn còn NaN
+# SimpleImputer xử lý cả trường hợp đó bằng cách fallback về 0
+imputer = SimpleImputer(strategy="mean")
+X_train_imp = imputer.fit_transform(train[ALL_FEATURES])
+X_test_imp  = imputer.transform(test[ALL_FEATURES])
+
+# Kiểm tra không còn NaN sau impute
+assert not np.isnan(X_train_imp).any(), "Van con NaN trong X_train sau impute!"
+assert not np.isnan(X_test_imp).any(),  "Van con NaN trong X_test sau impute!"
+
+# ── KMeans cluster feature ────────────────────────────────────────────────────
+# Thêm cluster label của KMeans (k=5) làm feature phụ cho các model
+# Ý nghĩa: nhóm các thành phố/ngày có pattern thời tiết tương tự
+N_CLUSTERS = min(5, len(train))   # không vượt quá số sample train
+kmeans = KMeans(n_clusters=N_CLUSTERS, random_state=42, n_init=10)
+kmeans.fit(X_train_imp)
+
+cluster_train = kmeans.predict(X_train_imp).reshape(-1, 1)
+cluster_test  = kmeans.predict(X_test_imp).reshape(-1, 1)
+
+X_train = np.hstack([X_train_imp, cluster_train])
+X_test  = np.hstack([X_test_imp,  cluster_test])
+y_train = train["target_next_temp"].values
+y_test  = test["target_next_temp"].values
+
+print(f"\nTrain: {len(train)} rows  ({train['date'].min().date()} -> {train['date'].max().date()})")
+print(f"Test : {len(test)}  rows  ({test['date'].min().date()}  -> {test['date'].max().date()})")
+print(f"X_train shape: {X_train.shape} | X_test shape: {X_test.shape}")
+print(f"KMeans clusters: {N_CLUSTERS}  |  cluster distribution train: {np.bincount(cluster_train.ravel())}")
+
+# COMMAND ----------
+# MAGIC %md
+# MAGIC ## 3. Train Models
+
+# COMMAND ----------
+
+# ── KMeans Regressor wrapper ──────────────────────────────────────────────────
+# KMeans không phải regressor, nên wrap lại: fit cluster → lưu centroid target mean
+# predict = mean(target) của cluster gần nhất trên train set
+class KMeansRegressor:
+    """Cluster-mean regressor: assign cluster, predict mean target of that cluster."""
+    def __init__(self, n_clusters=8, random_state=42):
+        self.n_clusters   = n_clusters
+        self.random_state = random_state
+        self.km           = KMeans(n_clusters=n_clusters, random_state=random_state, n_init=10)
+        self.cluster_means_ = None
+
+    def fit(self, X, y):
+        self.km.fit(X)
+        labels = self.km.labels_
+        self.cluster_means_ = np.array([
+            y[labels == k].mean() if (labels == k).any() else y.mean()
+            for k in range(self.n_clusters)
+        ])
+        return self
+
+    def predict(self, X):
+        labels = self.km.predict(X)
+        return self.cluster_means_[labels]
+
+    # sklearn-compatible properties
+    @property
+    def feature_importances_(self):
+        return None   # không có, dùng uniform fallback
+
+MODELS = {
+    # 1. Linear Regression (baseline tuyến tính)
+    "LinearRegression": Pipeline([
+        ("scaler", StandardScaler()),
+        ("lr",     LinearRegression()),
+    ]),
+    # 2. KMeans Regressor (cluster-mean, non-parametric)
+    "KMeans": Pipeline([
+        ("scaler", StandardScaler()),
+        ("km",     KMeansRegressor(n_clusters=min(8, max(2, len(train) // 10)), random_state=42)),
+    ]),
+    # 3. Random Forest (non-linear, bắt được tương tác phức tạp giữa features)
+    "RandomForest": RandomForestRegressor(
+        n_estimators=200, max_depth=10, min_samples_leaf=2,
+        n_jobs=-1, random_state=42,
+    ),
+}
+
+results = {}
+
+experiment_name = "/Shared/weather-pipeline/ml_experiments"
+try:
+    mlflow.set_experiment(experiment_name)
+except Exception:
+    pass
+
+with mlflow.start_run(run_name="weather_forecast_training") as run:
+    mlflow.log_param("n_features",  len(ALL_FEATURES))
+    mlflow.log_param("train_rows",  len(train))
+    mlflow.log_param("test_rows",   len(test))
+    mlflow.log_param("split_date",  str(split_date.date()))
+    mlflow.log_param("n_cities",    len(pdf_trainable["city"].unique()))
+
+    for name, model in MODELS.items():
+        print(f"\n-- Train: {name} --")
+        model.fit(X_train, y_train)
+
+        preds_train = model.predict(X_train)
+        preds_test  = model.predict(X_test)
+
+        rmse_train = float(np.sqrt(mean_squared_error(y_train, preds_train)))
+        rmse_test  = float(np.sqrt(mean_squared_error(y_test,  preds_test)))
+        mae_test   = float(mean_absolute_error(y_test, preds_test))
+        # r2 không xác định khi test chỉ có 1 mẫu
+        r2_test    = float(r2_score(y_test, preds_test)) if len(y_test) > 1 else float("nan")
+
+        print(f"  RMSE train : {rmse_train:.3f}C")
+        print(f"  RMSE test  : {rmse_test:.3f}C")
+        print(f"  MAE  test  : {mae_test:.3f}C")
+        print(f"  R2   test  : {r2_test:.3f}" if not np.isnan(r2_test) else "  R2   test  : N/A (1 sample)")
+
+        mlflow.log_metrics({
+            f"{name}_rmse_train": rmse_train,
+            f"{name}_rmse_test":  rmse_test,
+            f"{name}_mae_test":   mae_test,
+            f"{name}_r2_test":    r2_test if not np.isnan(r2_test) else -999,
+        })
+
+        results[name] = {
+            "model":      model,
+            "rmse_train": rmse_train,
+            "rmse_test":  rmse_test,
+            "mae_test":   mae_test,
+            "r2_test":    r2_test,
+            "preds_test": preds_test,
+        }
+
+    # Chọn best model theo RMSE test
+    best_name  = min(results, key=lambda n: results[n]["rmse_test"])
+    best_model = results[best_name]["model"]
+    best_rmse  = results[best_name]["rmse_test"]
+
+    print(f"\n*** Best model: {best_name}  (RMSE = {best_rmse:.3f}C) ***")
+    mlflow.set_tag("best_model", best_name)
+    try:
+        mlflow.sklearn.log_model(best_model, "best_model")
+    except Exception:
+        pass
+
+print(f"\nMLflow run_id: {run.info.run_id}")
+
+# COMMAND ----------
+# MAGIC %md
+# MAGIC ## 4. Feature Importance + Metrics tables
+
+# COMMAND ----------
+
+# ── Metrics ──────────────────────────────────────────────────────────────────
+metrics_rows = []
+for name, res in results.items():
+    metrics_rows.append({
+        "model":      name,
+        "rmse_train": round(res["rmse_train"], 4),
+        "rmse_test":  round(res["rmse_test"],  4),
+        "mae_test":   round(res["mae_test"],   4),
+        "r2_test":    round(res["r2_test"],    4) if not np.isnan(res["r2_test"]) else None,
+        "is_best":    (name == best_name),
+    })
+metrics_df = pd.DataFrame(metrics_rows).sort_values("rmse_test").reset_index(drop=True)
+print("Model metrics:")
+print(metrics_df.to_string(index=False))
+
+# ── Feature importance ────────────────────────────────────────────────────────
+# ALL_FEATURES + "kmeans_cluster" là toàn bộ features thực sự đưa vào model
+FINAL_FEATURE_NAMES = ALL_FEATURES + ["kmeans_cluster"]
+
+best_raw = best_model
+# Nếu là Pipeline, lấy step cuối
+if hasattr(best_model, "steps"):
+    best_raw = best_model.steps[-1][1]
+
+if hasattr(best_raw, "feature_importances_") and best_raw.feature_importances_ is not None:
+    importances = best_raw.feature_importances_
+elif hasattr(best_raw, "coef_"):
+    importances = np.abs(best_raw.coef_).flatten()  # flatten để đảm bảo 1D
+else:
+    importances = np.ones(len(FINAL_FEATURE_NAMES)) / len(FINAL_FEATURE_NAMES)
+
+# Guard: đảm bảo độ dài khớp với FINAL_FEATURE_NAMES
+if len(importances) != len(FINAL_FEATURE_NAMES):
+    print(f"[WARN] importance length {len(importances)} != feature count {len(FINAL_FEATURE_NAMES)}, dùng uniform fallback")
+    importances = np.ones(len(FINAL_FEATURE_NAMES)) / len(FINAL_FEATURE_NAMES)
+
+feat_imp_df = (
+    pd.DataFrame({"feature": FINAL_FEATURE_NAMES, "importance": importances})
+    .sort_values("importance", ascending=False)
+    .reset_index(drop=True)
+)
+feat_imp_df["rank"] = range(1, len(feat_imp_df) + 1)
+total_imp = feat_imp_df["importance"].sum()
+feat_imp_df["importance_pct"] = (feat_imp_df["importance"] / total_imp * 100).round(2) if total_imp > 0 else 0.0
+
+print("\nTop 15 features:")
+print(feat_imp_df.head(15).to_string(index=False))
+
+# COMMAND ----------
+# MAGIC %md
+# MAGIC ## 5. Predict toàn bộ dataset + Forecast ngày mai
+
+# COMMAND ----------
+
+# ── Full predictions (train + test) — dùng cho chart Actual vs Predicted ─────
+all_X_imp = imputer.transform(pdf_trainable[ALL_FEATURES])
+all_cluster = kmeans.predict(all_X_imp).reshape(-1, 1)
+all_X_final = np.hstack([all_X_imp, all_cluster])
+
+pdf_trainable["predicted_temp"]   = best_model.predict(all_X_final).round(2)
+pdf_trainable["split"]            = "train"
+# Gán split label đúng theo vị trí index
+test_indices = test.index
+pdf_trainable.loc[pdf_trainable.index.isin(test_indices), "split"] = "test"
+pdf_trainable["prediction_error"] = (
+    pdf_trainable["predicted_temp"] - pdf_trainable["target_next_temp"]
+).round(2)
+
+# ── Test set predictions — dùng cho metrics chi tiết ─────────────────────────
+pred_df = test[["city", "country", "date", "avg_temp_c", "target_next_temp"]].copy()
+for name in MODELS:
+    col = f"pred_{name.lower().replace(' ', '_')}"
+    pred_df[col] = results[name]["preds_test"]
+
+best_col = f"pred_{best_name.lower().replace(' ', '_')}"
+pred_df["pred_best"]   = pred_df[best_col]
+pred_df["model_name"]  = best_name
+pred_df["error"]       = (pred_df["pred_best"] - pred_df["target_next_temp"]).round(2)
+pred_df["abs_error"]   = pred_df["error"].abs()
+pred_df["within_1deg"] = (pred_df["abs_error"] <= 1.0).astype(int)
+pred_df["within_2deg"] = (pred_df["abs_error"] <= 2.0).astype(int)
+
+# ── Forecast ngày mai cho mỗi city ───────────────────────────────────────────
+# Dùng hàng mới nhất (kể cả hàng không có target) của mỗi city
+latest_rows = pdf_raw.sort_values("date").groupby("city").tail(1).copy()
+latest_rows["city_encoded"] = le.transform(latest_rows["city"])
+
+X_fc_imp     = imputer.transform(latest_rows[ALL_FEATURES])
+X_fc_cluster = kmeans.predict(X_fc_imp).reshape(-1, 1)
+X_fc_final   = np.hstack([X_fc_imp, X_fc_cluster])
+
+latest_rows["forecast_temp_next_day"] = best_model.predict(X_fc_final).round(2)
+
+forecast_df = latest_rows[[
+    "city", "country", "date",
+    "avg_temp_c", "avg_humidity", "avg_wind_speed_kmh",
+    "comfort_score", "weather_severity",
+    "forecast_temp_next_day",
+]].copy()
+forecast_df["forecast_date"] = pd.to_datetime(forecast_df["date"]) + pd.Timedelta(days=1)
+forecast_df["model_name"]    = best_name
+
+print("Forecast nhiet do ngay mai:")
+print(forecast_df[["city", "avg_temp_c", "forecast_temp_next_day", "forecast_date"]].to_string(index=False))
+
+# COMMAND ----------
+# MAGIC %md
+# MAGIC ## 6. Lưu vào Delta Tables
+
+# COMMAND ----------
+
+def save_to_delta(df_pd: pd.DataFrame, table_name: str):
+    (
+        spark.createDataFrame(df_pd)
+        .write.format("delta").mode("overwrite")
+        .option("overwriteSchema", "true")
+        .saveAsTable(table_name)
+    )
+    print(f"  Saved -> {table_name}  ({len(df_pd)} rows)")
+
+print("=== Saving Delta tables ===")
+save_to_delta(pred_df,    ML_PRED_TABLE)
+save_to_delta(metrics_df, ML_METRICS_TABLE)
+save_to_delta(feat_imp_df,ML_FEATIMP_TABLE)
+save_to_delta(
+    pdf_trainable[[
+        "city", "country", "date", "avg_temp_c",
+        "target_next_temp", "predicted_temp",
+        "split", "prediction_error",
+    ]],
+    ML_FULLPRED_TABLE,
+)
+save_to_delta(forecast_df, ML_FORECAST_TABLE)
+
+# COMMAND ----------
+# MAGIC %md
+# MAGIC ## 7. Export CSV cho Streamlit
+
+# COMMAND ----------
+
+def export_csv(df_pd: pd.DataFrame, filename: str):
+    csv_str = df_pd.to_csv(index=False)
+    dbutils.fs.put(f"{EXPORT_FS_PATH}/{filename}", csv_str, overwrite=True)
+    print(f"  OK   {filename}  ({len(df_pd)} rows)")
+
+# Summary — Streamlit ML Insights KPI cards
+within_1 = pred_df["within_1deg"].mean() * 100
+within_2 = pred_df["within_2deg"].mean() * 100
+summary_df = pd.DataFrame([{
+    "best_model":      best_name,
+    "rmse_test":       round(best_rmse, 4),
+    "mae_test":        round(results[best_name]["mae_test"],  4),
+    "r2_test":         round(results[best_name]["r2_test"],   4) if not np.isnan(results[best_name]["r2_test"]) else None,
+    "n_features":      len(ALL_FEATURES),
+    "train_rows":      len(train),
+    "test_rows":       len(test),
+    "n_cities":        len(pdf_trainable["city"].unique()),
+    "within_1deg_pct": round(within_1, 1),
+    "within_2deg_pct": round(within_2, 1),
+}])
+
+print("=== Exporting CSVs ===")
+export_csv(summary_df,  "ml_summary.csv")
+export_csv(metrics_df,  "ml_metrics.csv")
+export_csv(feat_imp_df, "ml_feature_importance.csv")
+export_csv(pred_df,     "ml_predictions.csv")
+export_csv(
+    pdf_trainable[[
+        "city", "country", "date", "avg_temp_c",
+        "target_next_temp", "predicted_temp",
+        "split", "prediction_error",
+    ]],
+    "ml_full_predictions.csv",
+)
+export_csv(forecast_df, "ml_forecast.csv")
+
+# COMMAND ----------
+
+print(f"\nTat ca CSV tai: {EXPORT_WS_PATH}")
+print("\n" + "=" * 50)
+print(f"  Best Model  : {best_name}")
+print(f"  RMSE Test   : {best_rmse:.3f} C")
+print(f"  MAE  Test   : {results[best_name]['mae_test']:.3f} C")
+r2_disp = f"{results[best_name]['r2_test']:.3f}" if not np.isnan(results[best_name]["r2_test"]) else "N/A"
+print(f"  R2   Test   : {r2_disp}")
+print(f"  Within 1C   : {within_1:.1f}%")
+print(f"  Within 2C   : {within_2:.1f}%")
+print(f"  Train rows  : {len(train)}")
+print(f"  Test  rows  : {len(test)}")
+print("=" * 50)

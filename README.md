@@ -117,6 +117,7 @@ databricks workspace import /Shared/weather-pipeline/01_bronze_ingest --file not
 databricks workspace import /Shared/weather-pipeline/02_silver_transform --file notebooks/02_silver_transform.py --language PYTHON --overwrite
 databricks workspace import /Shared/weather-pipeline/03_gold_aggregate --file notebooks/03_gold_aggregate.py --language PYTHON --overwrite
 databricks workspace import /Shared/weather-pipeline/04_ml_train --file notebooks/04_ml_train.py --language PYTHON --overwrite
+databricks workspace import /Shared/weather-pipeline/weather_crawler --file notebooks/weather_crawler.py --language PYTHON --overwrite
 ```
 
 ---
