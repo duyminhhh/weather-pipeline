@@ -1,0 +1,37 @@
+# render.yaml — đặt ở ROOT của repo (cùng cấp package.json, README.md)
+# Docs: https://render.com/docs/blueprint-spec
+
+services:
+  - type: web
+    name: weather-pipeline-dashboard
+    runtime: static
+
+    # Build từ subfolder weather-dashboard
+    buildCommand: cd weather-dashboard && npm install && npm run build
+    staticPublishPath: ./weather-dashboard/dist
+
+    # SPA fallback — bắt buộc với React Router
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+
+    # Biến môi trường — điền giá trị thật trong Render Dashboard
+    envVars:
+      - key: VITE_DATABRICKS_HOST
+        value: ""   # https://adb-xxxx.azuredatabricks.net
+      - key: VITE_DATABRICKS_TOKEN
+        value: ""   # Personal Access Token từ Databricks
+
+    # Cache assets tĩnh
+    headers:
+      - path: /assets/*
+        name: Cache-Control
+        value: public, max-age=31536000, immutable
+      - path: /*
+        name: Cache-Control
+        value: no-cache
+
+    # Bỏ comment sau khi cấu hình DNS xong
+    # domains:
+    #   - weather.yourdomain.com

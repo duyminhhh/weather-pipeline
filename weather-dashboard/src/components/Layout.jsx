@@ -1,9 +1,10 @@
 const NAV_ITEMS = [
-  { id: 'dashboard', label: 'Dashboard',    icon: '▦' },
-  { id: 'live',      label: 'Live Weather', icon: '◎' },
-  { id: 'ml',        label: 'ML Insights',  icon: '⬡' },
-  { id: 'pipeline',  label: 'Pipeline',     icon: '⇢' },
-  { id: 'workflows', label: 'Workflows',    icon: '≡' },
+  { id: 'dashboard',   label: 'Dashboard',    icon: '▦' },
+  { id: 'live',        label: 'Live Weather', icon: '◎' },
+  { id: 'ml',          label: 'ML Insights',  icon: '⬡' },
+  { id: 'pipeline',    label: 'Pipeline',     icon: '⇢' },
+  { id: 'data-layers', label: 'Data Layers',  icon: '◈' },
+  { id: 'workflows',   label: 'Workflows',    icon: '≡' },
 ]
 
 export default function Layout({ tab, setTab, children }) {

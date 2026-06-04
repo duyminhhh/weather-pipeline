@@ -5,6 +5,7 @@ import LiveWeatherTab from './tabs/LiveWeatherTab'
 import MLTab from './tabs/MLTab'
 import PipelineTab from './tabs/PipelineTab'
 import WorkflowsTab from './tabs/WorkflowsTab'
+import DataLayersTab from './tabs/DataLayersTab'
 import './index.css'
 
 const DATABRICKS_HOST  = import.meta.env.VITE_DATABRICKS_HOST  || ''
@@ -30,11 +31,12 @@ export default function App() {
         </div>
       )}
 
-      {tab === 'dashboard'  && <DashboardTab />}
-      {tab === 'live'       && <LiveWeatherTab />}
-      {tab === 'ml'         && <MLTab />}
-      {tab === 'pipeline'   && <PipelineTab />}
-      {tab === 'workflows'  && <WorkflowsTab />}
+      {tab === 'dashboard'    && <DashboardTab />}
+      {tab === 'live'         && <LiveWeatherTab />}
+      {tab === 'ml'           && <MLTab />}
+      {tab === 'pipeline'     && <PipelineTab />}
+      {tab === 'data-layers'  && <DataLayersTab />}
+      {tab === 'workflows'    && <WorkflowsTab />}
     </Layout>
   )
 }

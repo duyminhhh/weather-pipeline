@@ -32,6 +32,31 @@ function tempColor(t) {
 }
 
 // ── Multi-line temperature chart ──────────────────────────────────────────────
+function TempLineTooltip({ active, payload, label }) {
+  if (!active || !payload?.length) return null
+  return (
+    <div style={{
+      background: '#0c0f14', border: '1px solid #4f9cf9', borderRadius: 6,
+      padding: '10px 14px', fontFamily: "'IBM Plex Mono', monospace", fontSize: 11,
+    }}>
+      <div style={{ color: '#7bc8f6', marginBottom: 8, fontSize: 10, letterSpacing: 1 }}>
+        📅 {label}
+      </div>
+      {payload.map((p, i) => {
+        const icons = { 'Avg': '🌡', 'Max': '🔺', 'Min': '🔻' }
+        return (
+          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 16, marginBottom: 4 }}>
+            <span style={{ color: p.color }}>{icons[p.name] || '•'} {p.name}</span>
+            <span style={{ color: '#d8dde8', fontWeight: 600 }}>
+              {p.value != null ? `${parseFloat(p.value).toFixed(1)}°C` : '—'}
+            </span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 export function TempLineChart({ data, height = 260 }) {
   if (!data?.length) return null
   return (
@@ -40,7 +65,7 @@ export function TempLineChart({ data, height = 260 }) {
         <CartesianGrid stroke="#1a1f2e" strokeDasharray="3 3" />
         <XAxis dataKey="date" tick={{ fill: '#4a5268', fontSize: 10 }} tickFormatter={v => v?.slice(5)} />
         <YAxis tick={{ fill: '#4a5268', fontSize: 10 }} unit="°" />
-        <Tooltip {...TOOLTIP_STYLE} formatter={(v) => [`${fmt(v)}°C`]} />
+        <Tooltip content={<TempLineTooltip />} cursor={{ stroke: 'rgba(79,156,249,0.3)', strokeWidth: 1 }} />
         <Legend wrapperStyle={{ fontSize: 11, color: '#7a8399' }} />
         <Line type="monotone" dataKey="avg_temp_c" stroke="#4f9cf9" strokeWidth={2} dot={false} name="Avg" />
         <Line type="monotone" dataKey="temp_max_c"  stroke="#f5a623" strokeWidth={1.5} dot={false} name="Max" strokeDasharray="4 2" />
@@ -108,6 +133,29 @@ export function SimpleBar({ data, dataKey, color = '#4f9cf9', xKey = 'date', uni
 
 // ── Multi-line comparison chart ───────────────────────────────────────────────
 const LINE_COLORS = ['#4f9cf9','#3dd68c','#f5a623','#9b7ff4','#f05252','#7bc8f6']
+
+function MultiLineTooltip({ active, payload, label }) {
+  if (!active || !payload?.length) return null
+  return (
+    <div style={{
+      background: '#0c0f14', border: '1px solid #4f9cf9', borderRadius: 6,
+      padding: '10px 14px', fontFamily: "'IBM Plex Mono', monospace", fontSize: 11,
+    }}>
+      <div style={{ color: '#7bc8f6', marginBottom: 8, fontSize: 10, letterSpacing: 1 }}>
+        📅 {label}
+      </div>
+      {payload.map((p, i) => (
+        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 16, marginBottom: 4 }}>
+          <span style={{ color: p.color }}>🌍 {p.name}</span>
+          <span style={{ color: '#d8dde8', fontWeight: 600 }}>
+            {p.value != null ? `${parseFloat(p.value).toFixed(1)}°C` : '—'}
+          </span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 export function MultiLineChart({ data, lines, xKey = 'date', height = 260, unit = '' }) {
   if (!data?.length) return null
   return (
@@ -116,7 +164,7 @@ export function MultiLineChart({ data, lines, xKey = 'date', height = 260, unit 
         <CartesianGrid stroke="#1a1f2e" strokeDasharray="3 3" />
         <XAxis dataKey={xKey} tick={{ fill: '#4a5268', fontSize: 10 }} tickFormatter={v => v?.slice?.(5) ?? v} />
         <YAxis tick={{ fill: '#4a5268', fontSize: 10 }} unit={unit} />
-        <Tooltip {...TOOLTIP_STYLE} formatter={(v) => [`${fmt(v)}${unit}`]} />
+        <Tooltip content={<MultiLineTooltip />} cursor={{ stroke: 'rgba(79,156,249,0.3)', strokeWidth: 1 }} />
         <Legend wrapperStyle={{ fontSize: 11, color: '#7a8399' }} />
         {lines.map((l, i) => (
           <Line key={l} type="monotone" dataKey={l} stroke={LINE_COLORS[i % LINE_COLORS.length]}
@@ -128,15 +176,64 @@ export function MultiLineChart({ data, lines, xKey = 'date', height = 260, unit 
 }
 
 // ── Actual vs Predicted ───────────────────────────────────────────────────────
+function PredTooltip({ active, payload, label }) {
+  if (!active || !payload?.length) return null
+  // Format date: trim the ISO timestamp to readable form
+  const dateStr = label ? label.replace('T00:00:00.000Z', '').replace('T', ' ') : '—'
+  const actual = payload.find(p => p.dataKey === 'target_next_temp')
+  const predicted = payload.find(p => p.dataKey === 'predicted_temp')
+  const diff = (actual?.value != null && predicted?.value != null)
+    ? Math.abs(parseFloat(actual.value) - parseFloat(predicted.value)).toFixed(2)
+    : null
+  return (
+    <div style={{
+      background: '#0c0f14', border: '1px solid #4f9cf9', borderRadius: 6,
+      padding: '10px 14px', fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, minWidth: 180,
+    }}>
+      <div style={{ color: '#7bc8f6', marginBottom: 8, fontSize: 10, letterSpacing: 1 }}>
+        📅 {dateStr}
+      </div>
+      {actual && (
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, marginBottom: 4 }}>
+          <span style={{ color: '#7a8399' }}>🌡 Thực tế</span>
+          <span style={{ color: '#d8dde8', fontWeight: 600 }}>
+            {actual.value != null ? `${parseFloat(actual.value).toFixed(1)}°C` : '—'}
+          </span>
+        </div>
+      )}
+      {predicted && (
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, marginBottom: 4 }}>
+          <span style={{ color: '#4f9cf9' }}>🤖 Dự đoán</span>
+          <span style={{ color: '#4f9cf9', fontWeight: 600 }}>
+            {predicted.value != null ? `${parseFloat(predicted.value).toFixed(1)}°C` : '—'}
+          </span>
+        </div>
+      )}
+      {diff != null && (
+        <div style={{
+          marginTop: 8, paddingTop: 6, borderTop: '1px solid rgba(79,156,249,0.2)',
+          display: 'flex', justifyContent: 'space-between', gap: 16,
+        }}>
+          <span style={{ color: 'var(--text3)' }}>Sai số</span>
+          <span style={{
+            fontWeight: 700,
+            color: parseFloat(diff) <= 1 ? '#3dd68c' : parseFloat(diff) <= 2 ? '#f5a623' : '#f05252',
+          }}>±{diff}°C</span>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function PredChart({ data, height = 320 }) {
   if (!data?.length) return null
   return (
     <ResponsiveContainer width="100%" height={height}>
       <LineChart data={data} margin={{ top: 4, right: 8, bottom: 4, left: -10 }}>
         <CartesianGrid stroke="#1a1f2e" strokeDasharray="3 3" />
-        <XAxis dataKey="date" tick={{ fill: '#4a5268', fontSize: 10 }} tickFormatter={v => v?.slice(5)} />
+        <XAxis dataKey="date" tick={{ fill: '#4a5268', fontSize: 10 }} tickFormatter={v => v?.slice(5, 10)} />
         <YAxis tick={{ fill: '#4a5268', fontSize: 10 }} unit="°" />
-        <Tooltip {...TOOLTIP_STYLE} formatter={(v) => [`${fmt(v)}°C`]} />
+        <Tooltip content={<PredTooltip />} cursor={{ stroke: 'rgba(79,156,249,0.3)', strokeWidth: 1 }} />
         <Legend wrapperStyle={{ fontSize: 11, color: '#7a8399' }} />
         <Line type="monotone" dataKey="target_next_temp" stroke="#7a8399"  strokeWidth={1.5} dot={false} name="Actual" />
         <Line type="monotone" dataKey="predicted_temp"   stroke="#4f9cf9"  strokeWidth={2}   dot={false} name="Predicted" strokeDasharray="5 3" />
