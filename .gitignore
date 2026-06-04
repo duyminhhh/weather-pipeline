@@ -1,9 +1,27 @@
+# ── Credentials ──
 .env
+.env.local
 .streamlit/secrets.toml
-raw_data/
+
+# ── Python ──
 __pycache__/
 *.pyc
+*.pyo
+venv/
+.venv/
+raw_data/
+
+# ── Frontend ──
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+frontend/.env.local
+
+# ── OS ──
 .DS_Store
+Thumbs.db
+
+# ── Misc ──
 airflow.db
 airflow/logs/
-venv/
+*.log

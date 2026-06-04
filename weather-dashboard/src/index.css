@@ -1,0 +1,55 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap');
+
+:root {
+  --bg:        #0c0f14;
+  --bg1:       #131720;
+  --bg2:       #1a1f2e;
+  --border:    #242b3d;
+  --border2:   #2e3650;
+  --text:      #d8dde8;
+  --text2:     #7a8399;
+  --text3:     #4a5268;
+  --accent:    #4f9cf9;
+  --accent2:   #7bc8f6;
+  --green:     #3dd68c;
+  --amber:     #f5a623;
+  --red:       #f05252;
+  --purple:    #9b7ff4;
+  --mono:      'IBM Plex Mono', monospace;
+  --sans:      'IBM Plex Sans', sans-serif;
+  --radius:    6px;
+  --radius-lg: 10px;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body, #root {
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: var(--bg1); }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text3); }
+
+button { cursor: pointer; font-family: var(--sans); }
+a { color: var(--accent); text-decoration: none; }
+
+input, select {
+  font-family: var(--sans);
+  background: var(--bg1);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: var(--radius);
+  padding: 6px 10px;
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+input:focus, select:focus { border-color: var(--accent); }
