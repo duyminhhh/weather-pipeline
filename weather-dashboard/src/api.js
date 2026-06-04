@@ -76,10 +76,10 @@ export const Queries = {
   goldStats:     () => runSQL(`SELECT * FROM ${tbl('gold_city_stats')} ORDER BY overall_avg_temp DESC`),
   goldDailyAll:  () => runSQL(`SELECT city, date, avg_temp_c, avg_precipitation_mm, avg_uv_index FROM ${tbl('gold_weather_daily')} ORDER BY date ASC`),
   goldDailyCity: (city) => runSQL(`SELECT * FROM ${tbl('gold_weather_daily')} WHERE city = '${city}' ORDER BY date ASC`),
-  mlMetrics:     () => runSQL(`SELECT * FROM ${tbl('ml_model_metrics')} ORDER BY rmse_test ASC`),
-  mlPredictions: () => runSQL(`SELECT * FROM ${tbl('ml_predictions_full')} ORDER BY date ASC`),
-  mlFeatureImp:  () => runSQL(`SELECT * FROM ${tbl('ml_feature_importance')} ORDER BY importance DESC`),
-  mlForecast:    () => runSQL(`SELECT * FROM ${tbl('gold_forecast_next_day')} ORDER BY forecast_temp_next_day DESC`),
+  mlMetrics:     () => runSQL(`SELECT * FROM ${tbl('gold_ml_metrics')} ORDER BY rmse_test ASC`),
+  mlPredictions: () => runSQL(`SELECT * FROM ${tbl('gold_ml_full_predictions')} ORDER BY date ASC`),
+  mlFeatureImp:  () => runSQL(`SELECT * FROM ${tbl('gold_ml_feature_importance')} ORDER BY importance DESC`),
+  mlForecast:    () => runSQL(`SELECT * FROM ${tbl('gold_ml_forecast')} ORDER BY forecast_temp_next_day DESC`),
   saveSnapshot:  (values) => runSQL(`INSERT INTO ${tbl('live_weather_snapshots')} VALUES ${values}`),
 }
 

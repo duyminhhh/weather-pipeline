@@ -6,11 +6,13 @@ import {
 
 const TOOLTIP_STYLE = {
   contentStyle: {
-    background: '#1a1f2e', border: '1px solid #242b3d',
+    background: '#0c0f14', border: '1px solid #4f9cf9',
     borderRadius: 6, fontSize: 11, fontFamily: "'IBM Plex Mono', monospace",
     color: '#d8dde8',
   },
-  labelStyle: { color: '#7a8399', fontSize: 10 },
+  labelStyle: { color: '#7bc8f6', fontSize: 10 },
+  itemStyle: { color: '#d8dde8' },
+  cursor: { fill: 'rgba(79,156,249,0.08)' },
 }
 
 function fmt(val, digits = 1) {
@@ -55,7 +57,7 @@ export function TempBarChart({ data, height = 300 }) {
     <ResponsiveContainer width="100%" height={height}>
       <BarChart data={data} margin={{ top: 4, right: 8, bottom: 40, left: -10 }}>
         <CartesianGrid stroke="#1a1f2e" strokeDasharray="3 3" />
-        <XAxis dataKey="city" tick={{ fill: '#4a5268', fontSize: 10 }} angle={-35} textAnchor="end" interval={0} />
+        <XAxis dataKey="city" tick={{ fill: '#94a3b8', fontSize: 10 }} angle={-35} textAnchor="end" interval={0} />
         <YAxis tick={{ fill: '#4a5268', fontSize: 10 }} unit="°" />
         <Tooltip {...TOOLTIP_STYLE} formatter={(v) => [`${fmt(v)}°C`]} />
         <Bar dataKey="temperature_c" name="Temp" radius={[3, 3, 0, 0]}>
