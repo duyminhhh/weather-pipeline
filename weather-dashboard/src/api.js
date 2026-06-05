@@ -3,6 +3,9 @@
  * → Không bao giờ bị CORS block khi dùng `npm run dev`
  */
 
+// Production: VITE_PROXY_URL = https://weather-pipeline-proxy.onrender.com
+// Local:      để trống — Vite proxy tự handle
+const BASE_URL  = import.meta.env.VITE_PROXY_URL            || ''
 const TOKEN     = import.meta.env.VITE_DATABRICKS_TOKEN     || ''
 const WAREHOUSE = import.meta.env.VITE_DATABRICKS_WAREHOUSE || ''
 const CATALOG   = 'workspace'
@@ -19,7 +22,7 @@ function dbHeaders() {
 
 // ── Databricks REST helpers ──────────────────────────────────────────────────
 export async function dbGet(path, params = {}) {
-  const url = new URL('/api/databricks' + path, window.location.origin)
+  const url = new URL(BASE_URL + '/api/databricks' + path, BASE_URL || window.location.origin)
   Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v))
   const r = await fetch(url.toString(), { headers: dbHeaders() })
   if (!r.ok) throw new Error(`GET ${path} → ${r.status}`)
@@ -27,7 +30,7 @@ export async function dbGet(path, params = {}) {
 }
 
 export async function dbPost(path, body = {}) {
-  const r = await fetch('/api/databricks' + path, {
+  const r = await fetch(BASE_URL + '/api/databricks' + path, {
     method: 'POST',
     headers: dbHeaders(),
     body: JSON.stringify(body),
@@ -135,7 +138,7 @@ export async function fetchLiveWeather(cities) {
       timezone: 'auto',
       forecast_days: 1,
     })
-    const r = await fetch(`/api/weather/v1/forecast?${params}`)
+    const r = await fetch(`${BASE_URL}/api/weather/v1/forecast?${params}`)
     if (!r.ok) throw new Error('weather fetch failed')
     const j = await r.json()
     const cur = j.current ?? {}
