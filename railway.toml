@@ -1,0 +1,9 @@
+# railway.toml — đặt ở ROOT repo (cùng cấp README.md)
+
+[build]
+builder = "nixpacks"
+buildCommand = "cd weather-dashboard && npm install && npm run build"
+
+[deploy]
+startCommand = "cd weather-dashboard && node server.cjs"
+restartPolicyType = "on_failure"
