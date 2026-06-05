@@ -76,15 +76,51 @@ export function TempLineChart({ data, height = 260 }) {
 }
 
 // ── Bar chart with custom color per bar ───────────────────────────────────────
-export function TempBarChart({ data, height = 300 }) {
+function CustomBarLabel({ x, y, width, value, name }) {
+  const words = (name || '').split(' ')
+  return (
+    <g transform={`translate(${x + width / 2},${y + 4})`}>
+      <text
+        transform="rotate(-55)"
+        textAnchor="end"
+        fill="#94a3b8"
+        fontSize={9}
+        fontFamily="'IBM Plex Mono', monospace"
+      >
+        {words.map((w, i) => (
+          <tspan key={i} x={0} dy={i === 0 ? 0 : 11}>{w}</tspan>
+        ))}
+      </text>
+    </g>
+  )
+}
+
+export function TempBarChart({ data, height = 320 }) {
   if (!data?.length) return null
   return (
     <ResponsiveContainer width="100%" height={height}>
-      <BarChart data={data} margin={{ top: 4, right: 8, bottom: 40, left: -10 }}>
+      <BarChart data={data} margin={{ top: 4, right: 8, bottom: 80, left: -10 }}>
         <CartesianGrid stroke="#1a1f2e" strokeDasharray="3 3" />
-        <XAxis dataKey="city" tick={{ fill: '#94a3b8', fontSize: 10 }} angle={-35} textAnchor="end" interval={0} />
+        <XAxis
+          dataKey="city"
+          interval={0}
+          tick={({ x, y, payload }) => (
+            <g transform={`translate(${x},${y})`}>
+              <text
+                transform="rotate(-40)"
+                textAnchor="end"
+                fill="#94a3b8"
+                fontSize={9}
+                fontFamily="'IBM Plex Mono', monospace"
+                dy={4}
+              >
+                {payload.value}
+              </text>
+            </g>
+          )}
+        />
         <YAxis tick={{ fill: '#4a5268', fontSize: 10 }} unit="°" />
-        <Tooltip {...TOOLTIP_STYLE} formatter={(v) => [`${fmt(v)}°C`]} />
+        <Tooltip {...TOOLTIP_STYLE} formatter={(v) => [`${fmt(v)}°C`]} labelFormatter={(l) => `📍 ${l}`} />
         <Bar dataKey="temperature_c" name="Temp" radius={[3, 3, 0, 0]}>
           {data.map((d, i) => <Cell key={i} fill={tempColor(d.temperature_c)} />)}
         </Bar>
@@ -235,8 +271,9 @@ export function PredChart({ data, height = 320 }) {
         <YAxis tick={{ fill: '#4a5268', fontSize: 10 }} unit="°" />
         <Tooltip content={<PredTooltip />} cursor={{ stroke: 'rgba(79,156,249,0.3)', strokeWidth: 1 }} />
         <Legend wrapperStyle={{ fontSize: 11, color: '#7a8399' }} />
-        <Line type="monotone" dataKey="target_next_temp" stroke="#7a8399"  strokeWidth={1.5} dot={false} name="Actual" />
-        <Line type="monotone" dataKey="predicted_temp"   stroke="#4f9cf9"  strokeWidth={2}   dot={false} name="Predicted" strokeDasharray="5 3" />
+        <Line type="monotone" dataKey="target_next_temp"        stroke="#7a8399" strokeWidth={1.5} dot={false} name="Actual" />
+        <Line type="monotone" dataKey="predicted_temp"          stroke="#4f9cf9" strokeWidth={2}   dot={false} name="Predicted" strokeDasharray="5 3" />
+        <Line type="monotone" dataKey="forecast_temp_next_day"  stroke="#3dd68c" strokeWidth={2}   dot={false} name="Forecast" strokeDasharray="3 3" />
       </LineChart>
     </ResponsiveContainer>
   )
@@ -270,6 +307,69 @@ export function HumidityRadar({ data, height = 320 }) {
         <Radar name="Humidity" dataKey="humidity" stroke="#4f9cf9" fill="#4f9cf9" fillOpacity={0.2} />
         <Tooltip {...TOOLTIP_STYLE} formatter={(v) => [`${fmt(v, 0)}%`]} />
       </RadarChart>
+    </ResponsiveContainer>
+  )
+}
+// ── Next Day Forecast line chart ──────────────────────────────────────────────
+function ForecastTooltip({ active, payload, label }) {
+  if (!active || !payload?.length) return null
+  return (
+    <div style={{
+      background: '#0c0f14', border: '1px solid #3dd68c', borderRadius: 6,
+      padding: '10px 14px', fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, minWidth: 180,
+    }}>
+      <div style={{ color: '#3dd68c', marginBottom: 8, fontSize: 10, letterSpacing: 1 }}>
+        📍 {label}
+      </div>
+      {payload.map((p, i) => (
+        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 16, marginBottom: 4 }}>
+          <span style={{ color: p.color }}>{p.name === 'Avg Temp' ? '🌡' : '🤖'} {p.name}</span>
+          <span style={{ color: '#d8dde8', fontWeight: 600 }}>
+            {p.value != null ? `${parseFloat(p.value).toFixed(1)}°C` : '—'}
+          </span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+export function ForecastLineChart({ data, height = 320 }) {
+  if (!data?.length) return null
+  // Sort by forecast_temp_next_day desc để thấy rõ độ chênh
+  const sorted = [...data].sort((a, b) => (b.forecast_temp_next_day ?? 0) - (a.forecast_temp_next_day ?? 0))
+  return (
+    <ResponsiveContainer width="100%" height={height}>
+      <BarChart data={sorted} margin={{ top: 4, right: 8, bottom: 90, left: -10 }}>
+        <CartesianGrid stroke="#1a1f2e" strokeDasharray="3 3" />
+        <XAxis
+          dataKey="city"
+          interval={0}
+          tick={({ x, y, payload }) => (
+            <g transform={`translate(${x},${y})`}>
+              <text
+                transform="rotate(-40)"
+                textAnchor="end"
+                fill="#94a3b8"
+                fontSize={9}
+                fontFamily="'IBM Plex Mono', monospace"
+                dy={4}
+              >
+                {payload.value}
+              </text>
+            </g>
+          )}
+        />
+        <YAxis tick={{ fill: '#4a5268', fontSize: 10 }} unit="°" domain={['auto', 'auto']} />
+        <Tooltip
+          contentStyle={{ background: '#0c0f14', border: '1px solid #3dd68c', borderRadius: 6, fontSize: 11, fontFamily: "'IBM Plex Mono', monospace" }}
+          labelStyle={{ color: '#3dd68c', fontSize: 10 }}
+          formatter={(v, name) => [`${parseFloat(v).toFixed(1)}°C`, name]}
+          labelFormatter={(l) => `📍 ${l}`}
+        />
+        <Legend wrapperStyle={{ fontSize: 11, color: '#7a8399', paddingTop: 8 }} />
+        <Bar dataKey="avg_temp_c"              name="Avg Temp"     fill="#4f9cf9" radius={[2,2,0,0]} />
+        <Bar dataKey="forecast_temp_next_day"  name="Forecast"     fill="#3dd68c" radius={[2,2,0,0]} />
+      </BarChart>
     </ResponsiveContainer>
   )
 }

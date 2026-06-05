@@ -1,18 +1,16 @@
 import { useState } from 'react'
 import { useMl } from '../hooks/useData'
 import { Card, StatBox, SectionHead, Btn, Spinner, Alert, Table } from '../components/UI'
-import { PredChart, HBarChart, SimpleBar } from '../components/Charts'
+import { PredChart, SimpleBar } from '../components/Charts'
 
 function fmt(v, d = 3) { const n = parseFloat(v); return isNaN(n) ? '—' : n.toFixed(d) }
 
 export default function MLTab() {
   const { metrics, preds, featImp, forecast } = useMl()
   const [selCity, setSelCity] = useState('')
-  const [topN, setTopN] = useState(20)
 
   const metricsRows = metrics.data ?? []
   const predsRows = preds.data ?? []
-  const featRows = featImp.data?.slice(0, topN) ?? []
   const forecastRows = forecast.data ?? []
 
   const best = metricsRows[0] ?? {}
@@ -72,6 +70,39 @@ export default function MLTab() {
         </>
       )}
 
+      {forecastRows.length > 0 && (
+        <>
+          <SectionHead>Next Day Forecast</SectionHead>
+          <Card style={{ marginBottom: 20 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 10 }}>
+              {forecastRows.map((r, i) => {
+                const temp = r.forecast_temp_next_day ? parseFloat(r.forecast_temp_next_day) : null
+                const tempColor = temp === null ? 'var(--text2)' : temp >= 35 ? '#f05252' : temp >= 28 ? '#f5a623' : temp >= 18 ? '#3dd68c' : '#7bc8f6'
+                return (
+                  <div key={i} style={{
+                    padding: '14px 16px', borderRadius: 'var(--radius)',
+                    background: 'var(--bg2)', border: '1px solid var(--border)',
+                    display: 'flex', flexDirection: 'column', gap: 6,
+                    transition: 'border-color 0.15s',
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ fontSize: 13, fontFamily: 'var(--mono)', fontWeight: 700, color: 'var(--text1)' }}>{r.city}</span>
+                      {r.country && <span style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', background: 'var(--bg1)', padding: '1px 5px', borderRadius: 4 }}>{r.country}</span>}
+                    </div>
+                    <div style={{ fontSize: 28, fontWeight: 700, fontFamily: 'var(--mono)', color: tempColor, lineHeight: 1 }}>
+                      {temp !== null ? `${temp.toFixed(1)}°` : '—'}
+                    </div>
+                    <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>
+                      {r.forecast_date ?? 'next day'}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </Card>
+        </>
+      )}
+
       {predsRows.length > 0 && (
         <>
           {/* Actual vs Predicted */}
@@ -89,39 +120,6 @@ export default function MLTab() {
               ))}
             </div>
             <PredChart data={cityPreds} height={300} />
-          </Card>
-        </>
-      )}
-
-      {featRows.length > 0 && (
-        <>
-          <SectionHead action={
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 11, color: 'var(--text2)' }}>Top</span>
-              <input type="range" min={5} max={Math.min(50, (featImp.data?.length ?? 20))} value={topN}
-                onChange={e => setTopN(+e.target.value)}
-                style={{ width: 100, accentColor: 'var(--accent)' }} />
-              <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--accent)' }}>{topN}</span>
-            </div>
-          }>Feature Importance</SectionHead>
-          <Card style={{ marginBottom: 20 }}>
-            <HBarChart data={featRows} height={Math.max(200, topN * 22)} color="#4f9cf9" />
-          </Card>
-        </>
-      )}
-
-      {forecastRows.length > 0 && (
-        <>
-          <SectionHead>Next Day Forecast</SectionHead>
-          <Card>
-            <Table rows={forecastRows.map(r => ({
-              City: `${r.country || ''} ${r.city}`,
-              'Avg Temp': r.avg_temp_c ? `${parseFloat(r.avg_temp_c).toFixed(1)}°C` : '—',
-              'Forecast Temp': r.forecast_temp_next_day ? `${parseFloat(r.forecast_temp_next_day).toFixed(1)}°C` : '—',
-              'Forecast Date': r.forecast_date,
-              'Avg Humidity': r.avg_humidity ? `${parseFloat(r.avg_humidity).toFixed(0)}%` : '—',
-              'Wind': r.avg_wind_speed_kmh ? `${parseFloat(r.avg_wind_speed_kmh).toFixed(0)} km/h` : '—',
-            }))} />
           </Card>
         </>
       )}

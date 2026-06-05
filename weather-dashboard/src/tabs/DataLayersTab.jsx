@@ -169,14 +169,24 @@ const GOLD_TABLES = [
     desc: 'Lịch sử tích lũy theo ngày · GROUP BY (city, date) từ Silver · Chiến lược: append + dedup',
     rows: GOLD_DAILY,
     cols: [
-      {k:'date',w:95},{k:'city',w:130},{k:'country',w:60},
-      {k:'avg_temp_c',w:78},{k:'max_temp_c',w:78},{k:'min_temp_c',w:78},
-      {k:'avg_feels_like_c',w:100},{k:'avg_humidity',w:85},
-      {k:'avg_pressure_hpa',w:105},{k:'avg_wind_speed_kmh',w:110},
-      {k:'avg_cloud_pct',w:90},{k:'avg_precipitation_mm',w:115},
-      {k:'avg_uv_index',w:80},{k:'temp_range',w:90},
-      {k:'heat_index',w:90},{k:'comfort_score',w:100},
-      {k:'weather_severity',w:105},{k:'sample_count',w:85},
+      {k:'date',w:95,desc:'Ngày ghi nhận (yyyy-MM-dd)'},
+      {k:'city',w:130,desc:'Tên thành phố'},
+      {k:'country',w:60,desc:'Mã quốc gia (ISO 2 ký tự)'},
+      {k:'avg_temp_c',w:78,desc:'Nhiệt độ trung bình trong ngày (°C)'},
+      {k:'max_temp_c',w:78,desc:'Nhiệt độ cao nhất trong ngày (°C)'},
+      {k:'min_temp_c',w:78,desc:'Nhiệt độ thấp nhất trong ngày (°C)'},
+      {k:'avg_feels_like_c',w:100,desc:'Nhiệt độ cảm nhận trung bình (°C)'},
+      {k:'avg_humidity',w:85,desc:'Độ ẩm tương đối trung bình (%)'},
+      {k:'avg_pressure_hpa',w:105,desc:'Áp suất khí quyển trung bình (hPa)'},
+      {k:'avg_wind_speed_kmh',w:110,desc:'Tốc độ gió trung bình (km/h)'},
+      {k:'avg_cloud_pct',w:90,desc:'Độ che phủ mây trung bình (%)'},
+      {k:'avg_precipitation_mm',w:115,desc:'Lượng mưa trung bình (mm)'},
+      {k:'avg_uv_index',w:80,desc:'Chỉ số UV trung bình trong ngày'},
+      {k:'temp_range',w:90,desc:'Biên độ nhiệt trong ngày = max − min (°C)'},
+      {k:'heat_index',w:90,desc:'Cảm giác nóng kết hợp nhiệt độ + độ ẩm (°C)'},
+      {k:'comfort_score',w:100,desc:'Chỉ số tiện nghi tổng hợp 0–100 (nhiệt độ + độ ẩm + gió)'},
+      {k:'weather_severity',w:105,desc:'Mức độ thời tiết khắc nghiệt: 0 Normal → 4 Extreme'},
+      {k:'sample_count',w:85,desc:'Số lần đo trong ngày dùng để tính trung bình'},
     ],
   },
   {
@@ -185,14 +195,23 @@ const GOLD_TABLES = [
     desc: 'Snapshot thời tiết mới nhất mỗi thành phố · Window ROW_NUMBER() OVER (PARTITION BY city ORDER BY crawled_at DESC) · Chiến lược: overwrite',
     rows: GOLD_LATEST,
     cols: [
-      {k:'city',w:130},{k:'country',w:60},
-      {k:'temperature_c',w:90},{k:'feels_like_c',w:85},
-      {k:'temp_max_c',w:80},{k:'temp_min_c',w:80},
-      {k:'humidity',w:75},{k:'pressure_hpa',w:95},
-      {k:'wind_speed_kmh',w:95},{k:'wind_gusts_kmh',w:100},
-      {k:'precipitation_mm',w:105},{k:'cloud_cover_pct',w:90},
-      {k:'uv_index',w:68},{k:'weather_desc',w:120},
-      {k:'sunrise',w:130},{k:'sunset',w:130},{k:'crawled_at',w:145},
+      {k:'city',w:130,desc:'Tên thành phố'},
+      {k:'country',w:60,desc:'Mã quốc gia (ISO 2 ký tự)'},
+      {k:'temperature_c',w:90,desc:'Nhiệt độ hiện tại tại lần đo mới nhất (°C)'},
+      {k:'feels_like_c',w:85,desc:'Nhiệt độ cảm nhận tại lần đo mới nhất (°C)'},
+      {k:'temp_max_c',w:80,desc:'Nhiệt độ cao nhất trong ngày (°C)'},
+      {k:'temp_min_c',w:80,desc:'Nhiệt độ thấp nhất trong ngày (°C)'},
+      {k:'humidity',w:75,desc:'Độ ẩm tương đối (%)'},
+      {k:'pressure_hpa',w:95,desc:'Áp suất khí quyển (hPa)'},
+      {k:'wind_speed_kmh',w:95,desc:'Tốc độ gió (km/h)'},
+      {k:'wind_gusts_kmh',w:100,desc:'Tốc độ gió giật (km/h)'},
+      {k:'precipitation_mm',w:105,desc:'Lượng mưa tích lũy trong giờ (mm)'},
+      {k:'cloud_cover_pct',w:90,desc:'Độ che phủ mây (%)'},
+      {k:'uv_index',w:68,desc:'Chỉ số UV tại thời điểm đo'},
+      {k:'weather_desc',w:120,desc:'Mô tả thời tiết bằng ngôn ngữ tự nhiên'},
+      {k:'sunrise',w:130,desc:'Giờ bình minh (ISO 8601)'},
+      {k:'sunset',w:130,desc:'Giờ hoàng hôn (ISO 8601)'},
+      {k:'crawled_at',w:145,desc:'Thời điểm crawler thu thập dữ liệu mới nhất (UTC)'},
     ],
   },
   {
@@ -201,19 +220,31 @@ const GOLD_TABLES = [
     desc: 'Feature engineering cho ML · Temporal encoding sin/cos, lag 1/2/3/7d, rolling mean/std 3d/7d · Chiến lược: overwrite (tính lại từ full history)',
     rows: GOLD_ML,
     cols: [
-      {k:'date',w:95},{k:'city',w:130},
-      {k:'avg_temp_c',w:85},{k:'avg_humidity',w:90},
-      {k:'avg_wind_speed_kmh',w:115},{k:'avg_precipitation_mm',w:120},
-      {k:'month_sin',w:90},{k:'month_cos',w:90},
-      {k:'doy_sin',w:80},{k:'doy_cos',w:80},{k:'is_weekend',w:80},
-      {k:'temp_lag1',w:80},{k:'temp_lag3',w:80},{k:'temp_lag7',w:80},
-      {k:'humidity_lag1',w:95},
-      {k:'temp_roll_mean_3d',w:125},{k:'temp_roll_mean_7d',w:125},
-      {k:'temp_roll_std_3d',w:120},{k:'temp_roll_std_7d',w:120},
-      {k:'precip_roll_sum_3d',w:130},
-      {k:'temp_range',w:90},{k:'heat_index',w:90},
-      {k:'comfort_score',w:105},{k:'weather_severity',w:110},
-      {k:'target_next_temp',w:120},
+      {k:'date',w:95,desc:'Ngày ghi nhận (yyyy-MM-dd)'},
+      {k:'city',w:130,desc:'Tên thành phố'},
+      {k:'avg_temp_c',w:85,desc:'Nhiệt độ trung bình ngày — feature chính cho model (°C)'},
+      {k:'avg_humidity',w:90,desc:'Độ ẩm trung bình ngày (%)'},
+      {k:'avg_wind_speed_kmh',w:115,desc:'Tốc độ gió trung bình ngày (km/h)'},
+      {k:'avg_precipitation_mm',w:120,desc:'Lượng mưa trung bình ngày (mm)'},
+      {k:'month_sin',w:90,desc:'Mã hóa sin chu kỳ tháng — giữ tính liên tục (tháng 1 ≈ tháng 12)'},
+      {k:'month_cos',w:90,desc:'Mã hóa cos chu kỳ tháng — kết hợp với month_sin để biểu diễn thời điểm trong năm'},
+      {k:'doy_sin',w:80,desc:'Mã hóa sin ngày trong năm (day-of-year / 365)'},
+      {k:'doy_cos',w:80,desc:'Mã hóa cos ngày trong năm — dùng cùng doy_sin'},
+      {k:'is_weekend',w:80,desc:'Cờ cuối tuần: 1 = Thứ 7/CN, 0 = ngày thường'},
+      {k:'temp_lag1',w:80,desc:'Nhiệt độ ngày hôm trước (T-1) — null nếu chưa đủ lịch sử'},
+      {k:'temp_lag3',w:80,desc:'Nhiệt độ 3 ngày trước (T-3)'},
+      {k:'temp_lag7',w:80,desc:'Nhiệt độ 7 ngày trước (T-7) — bắt xu hướng tuần'},
+      {k:'humidity_lag1',w:95,desc:'Độ ẩm ngày hôm trước (T-1)'},
+      {k:'temp_roll_mean_3d',w:125,desc:'Trung bình nhiệt độ 3 ngày gần nhất (rolling mean)'},
+      {k:'temp_roll_mean_7d',w:125,desc:'Trung bình nhiệt độ 7 ngày gần nhất — xu hướng dài hơn'},
+      {k:'temp_roll_std_3d',w:120,desc:'Độ lệch chuẩn nhiệt độ 3 ngày — đo mức biến động'},
+      {k:'temp_roll_std_7d',w:120,desc:'Độ lệch chuẩn nhiệt độ 7 ngày'},
+      {k:'precip_roll_sum_3d',w:130,desc:'Tổng lượng mưa 3 ngày gần nhất (mm)'},
+      {k:'temp_range',w:90,desc:'Biên độ nhiệt trong ngày = max − min (°C)'},
+      {k:'heat_index',w:90,desc:'Cảm giác nóng kết hợp nhiệt độ + độ ẩm (°C)'},
+      {k:'comfort_score',w:105,desc:'Chỉ số tiện nghi tổng hợp 0–100'},
+      {k:'weather_severity',w:110,desc:'Mức độ thời tiết khắc nghiệt 0–4'},
+      {k:'target_next_temp',w:120,desc:'Nhãn mục tiêu: nhiệt độ ngày tiếp theo — null ở ngày cuối cùng'},
     ],
   },
   {
@@ -222,14 +253,21 @@ const GOLD_TABLES = [
     desc: 'Thống kê tổng hợp toàn bộ lịch sử mỗi thành phố · dùng cho Dashboard "Historical Stats" · Chiến lược: overwrite',
     rows: GOLD_STATS,
     cols: [
-      {k:'city',w:130},{k:'country',w:60},
-      {k:'days_tracked',w:95},{k:'overall_avg_temp',w:115},
-      {k:'overall_max_temp',w:115},{k:'overall_min_temp',w:115},
-      {k:'temp_std',w:80},{k:'avg_humidity',w:90},
-      {k:'avg_wind_speed',w:100},{k:'avg_precipitation',w:115},
-      {k:'avg_uv_index',w:90},{k:'avg_cloud_pct',w:90},
-      {k:'total_precipitation',w:120},
-      {k:'first_recorded',w:110},{k:'last_recorded',w:110},
+      {k:'city',w:130,desc:'Tên thành phố'},
+      {k:'country',w:60,desc:'Mã quốc gia (ISO 2 ký tự)'},
+      {k:'days_tracked',w:95,desc:'Tổng số ngày đã có dữ liệu cho thành phố này'},
+      {k:'overall_avg_temp',w:115,desc:'Nhiệt độ trung bình toàn lịch sử (°C)'},
+      {k:'overall_max_temp',w:115,desc:'Nhiệt độ cao nhất từng ghi nhận (°C)'},
+      {k:'overall_min_temp',w:115,desc:'Nhiệt độ thấp nhất từng ghi nhận (°C)'},
+      {k:'temp_std',w:80,desc:'Độ lệch chuẩn nhiệt độ toàn lịch sử — đo mức biến động khí hậu'},
+      {k:'avg_humidity',w:90,desc:'Độ ẩm trung bình toàn lịch sử (%)'},
+      {k:'avg_wind_speed',w:100,desc:'Tốc độ gió trung bình toàn lịch sử (km/h)'},
+      {k:'avg_precipitation',w:115,desc:'Lượng mưa trung bình toàn lịch sử (mm/ngày)'},
+      {k:'avg_uv_index',w:90,desc:'Chỉ số UV trung bình toàn lịch sử'},
+      {k:'avg_cloud_pct',w:90,desc:'Độ che phủ mây trung bình toàn lịch sử (%)'},
+      {k:'total_precipitation',w:120,desc:'Tổng lượng mưa tích lũy toàn lịch sử (mm)'},
+      {k:'first_recorded',w:110,desc:'Ngày đầu tiên có dữ liệu (yyyy-MM-dd)'},
+      {k:'last_recorded',w:110,desc:'Ngày mới nhất có dữ liệu (yyyy-MM-dd)'},
     ],
   },
 ]
@@ -252,19 +290,33 @@ const LAYERS = {
       {ok:true,  text:'✓ mergeSchema=true để tự động mở rộng schema'},
     ],
     cols:[
-      {k:'city',w:130},{k:'country',w:60},
-      {k:'latitude',w:75},{k:'longitude',w:80},{k:'timezone',w:130},
-      {k:'temperature_c',w:90},{k:'feels_like_c',w:85},
-      {k:'humidity',w:75},{k:'pressure_hpa',w:95},
-      {k:'precipitation_mm',w:105},{k:'rain_mm',w:75},
-      {k:'cloud_cover_pct',w:90},{k:'visibility_m',w:90},
-      {k:'wind_speed_kmh',w:95},{k:'wind_direction_deg',w:115},
-      {k:'wind_gusts_kmh',w:100},{k:'uv_index',w:68},
-      {k:'weather_code',w:95},{k:'weather_desc',w:120},
-      {k:'temp_max_c',w:80},{k:'temp_min_c',w:80},
-      {k:'precip_sum_mm',w:100},{k:'wind_max_kmh',w:90},
-      {k:'uv_index_max',w:90},{k:'sunrise',w:130},{k:'sunset',w:130},
-      {k:'crawled_at',w:145},
+      {k:'city',w:130,desc:'Tên thành phố'},
+      {k:'country',w:60,desc:'Mã quốc gia (ISO 2 ký tự)'},
+      {k:'latitude',w:75,desc:'Vĩ độ địa lý'},
+      {k:'longitude',w:80,desc:'Kinh độ địa lý'},
+      {k:'timezone',w:130,desc:'Múi giờ địa phương (ví dụ: Asia/Ho_Chi_Minh)'},
+      {k:'temperature_c',w:90,desc:'Nhiệt độ hiện tại (°C)'},
+      {k:'feels_like_c',w:85,desc:'Nhiệt độ cảm nhận (°C)'},
+      {k:'humidity',w:75,desc:'Độ ẩm tương đối (%)'},
+      {k:'pressure_hpa',w:95,desc:'Áp suất khí quyển (hPa)'},
+      {k:'precipitation_mm',w:105,desc:'Lượng mưa tích lũy trong giờ (mm)'},
+      {k:'rain_mm',w:75,desc:'Lượng mưa thực tế (mm), không gồm tuyết'},
+      {k:'cloud_cover_pct',w:90,desc:'Độ che phủ mây (%)'},
+      {k:'visibility_m',w:90,desc:'Tầm nhìn xa (mét)'},
+      {k:'wind_speed_kmh',w:95,desc:'Tốc độ gió (km/h)'},
+      {k:'wind_direction_deg',w:115,desc:'Hướng gió (độ, 0=Bắc)'},
+      {k:'wind_gusts_kmh',w:100,desc:'Tốc độ gió giật (km/h)'},
+      {k:'uv_index',w:68,desc:'Chỉ số UV tại thời điểm đo'},
+      {k:'weather_code',w:95,desc:'Mã thời tiết WMO'},
+      {k:'weather_desc',w:120,desc:'Mô tả thời tiết bằng ngôn ngữ tự nhiên'},
+      {k:'temp_max_c',w:80,desc:'Nhiệt độ cao nhất trong ngày (°C)'},
+      {k:'temp_min_c',w:80,desc:'Nhiệt độ thấp nhất trong ngày (°C)'},
+      {k:'precip_sum_mm',w:100,desc:'Tổng lượng mưa trong ngày (mm)'},
+      {k:'wind_max_kmh',w:90,desc:'Tốc độ gió tối đa trong ngày (km/h)'},
+      {k:'uv_index_max',w:90,desc:'Chỉ số UV cực đại trong ngày'},
+      {k:'sunrise',w:130,desc:'Giờ bình minh (ISO 8601)'},
+      {k:'sunset',w:130,desc:'Giờ hoàng hôn (ISO 8601)'},
+      {k:'crawled_at',w:145,desc:'Thời điểm crawler thu thập dữ liệu (UTC)'},
     ],
     rows: RAW,
   },
@@ -282,21 +334,28 @@ const LAYERS = {
       {ok:true,  text:'✓ Gắn cờ is_valid: temp ∈ [−60,60] và humidity ∈ [0,100]'},
     ],
     cols:[
-      {k:'city',w:130},{k:'country',w:60},
-      {k:'latitude',w:75},{k:'longitude',w:80},{k:'timezone',w:130},
-      {k:'temperature_c',w:90},{k:'feels_like_c',w:85},
-      {k:'temp_max_c',w:80},{k:'temp_min_c',w:80},
-      {k:'humidity',w:75},{k:'pressure_hpa',w:95},
-      {k:'cloud_cover_pct',w:90},{k:'visibility_m',w:90},
-      {k:'precipitation_mm',w:105},{k:'rain_mm',w:75},
-      {k:'precip_sum_mm',w:100},{k:'wind_speed_kmh',w:95},
-      {k:'wind_direction_deg',w:115},{k:'wind_gusts_kmh',w:100},
-      {k:'wind_max_kmh',w:90},{k:'weather_code',w:95},
-      {k:'weather_desc',w:120},{k:'uv_index',w:68},{k:'uv_index_max',w:90},
-      {k:'sunrise',w:130},{k:'sunset',w:130},
-      {k:'crawled_at',w:145},
-      {k:'date',w:95},{k:'hour',w:55},{k:'crawl_hour',w:145},
-      {k:'is_valid',w:68},{k:'processed_at',w:145},
+      {k:'city',w:130,desc:'Tên thành phố'},
+      {k:'country',w:60,desc:'Mã quốc gia (ISO 2 ký tự)'},
+      {k:'latitude',w:75,desc:'Vĩ độ địa lý'},
+      {k:'longitude',w:80,desc:'Kinh độ địa lý'},
+      {k:'temperature_c',w:90,desc:'Nhiệt độ hiện tại đã cast sang DOUBLE (°C)'},
+      {k:'feels_like_c',w:85,desc:'Nhiệt độ cảm nhận đã cast sang DOUBLE (°C)'},
+      {k:'temp_max_c',w:80,desc:'Nhiệt độ cao nhất trong ngày (°C)'},
+      {k:'temp_min_c',w:80,desc:'Nhiệt độ thấp nhất trong ngày (°C)'},
+      {k:'humidity',w:75,desc:'Độ ẩm tương đối đã cast sang INT (%)'},
+      {k:'pressure_hpa',w:95,desc:'Áp suất khí quyển (hPa)'},
+      {k:'cloud_cover_pct',w:90,desc:'Độ che phủ mây (%)'},
+      {k:'precipitation_mm',w:105,desc:'Lượng mưa tích lũy (mm)'},
+      {k:'wind_speed_kmh',w:95,desc:'Tốc độ gió (km/h)'},
+      {k:'uv_index',w:68,desc:'Chỉ số UV tại thời điểm đo'},
+      {k:'weather_desc',w:120,desc:'Mô tả thời tiết bằng ngôn ngữ tự nhiên'},
+      {k:'sunrise',w:130,desc:'Giờ bình minh (ISO 8601)'},
+      {k:'sunset',w:130,desc:'Giờ hoàng hôn (ISO 8601)'},
+      {k:'crawled_at',w:145,desc:'Thời điểm crawler thu thập dữ liệu (UTC)'},
+      {k:'date',w:95,desc:'Ngày tách từ crawled_at (yyyy-MM-dd)'},
+      {k:'hour',w:55,desc:'Giờ tách từ crawled_at (0–23)'},
+      {k:'is_valid',w:68,desc:'Cờ kiểm tra hợp lệ: temp ∈ [−60,60] và humidity ∈ [0,100]'},
+      {k:'processed_at',w:145,desc:'Thời điểm Silver pipeline xử lý bản ghi'},
     ],
     rows: SILVER,
   },
@@ -423,21 +482,20 @@ function BronzeSilverCard({ id }) {
           <span>—</span>
           {tab==='data'
             ? <span>10 bản ghi thực · crawler 2026-04-22T07:59 · <span style={{color:m.color.text}}>{m.cols.length} fields</span></span>
-            : <span>Tất cả columns và kiểu dữ liệu</span>}
+            : <span>Danh sách fields và mô tả</span>}
         </div>
         <div style={{ padding:12 }}>
           {tab==='data'
             ? <SampleTable cols={m.cols} rows={m.rows} borderColor={m.color.border} />
             : (
               <table style={{ width:'100%', borderCollapse:'collapse', fontSize:11, fontFamily:'var(--mono)' }}>
-                <thead><tr>{['Column','Width','Note'].map(h=>(
+                <thead><tr>{['Field','Mô tả'].map(h=>(
                   <th key={h} style={{ padding:'6px 10px', textAlign:'left', color:'var(--text3)', fontSize:10, fontWeight:700, letterSpacing:1, textTransform:'uppercase', borderBottom:'1px solid var(--border)' }}>{h}</th>
                 ))}</tr></thead>
                 <tbody>{m.cols.map(c=>(
                   <tr key={c.k} style={{ borderBottom:'1px solid rgba(255,255,255,0.04)' }}>
-                    <td style={{ padding:'5px 10px', color:'var(--accent)', fontWeight:600 }}>{c.k}</td>
-                    <td style={{ padding:'5px 10px', color:'#3dd68c' }}>{c.w}px</td>
-                    <td style={{ padding:'5px 10px', color:'var(--text3)' }}>—</td>
+                    <td style={{ padding:'5px 10px', color:'var(--accent)', fontWeight:600, whiteSpace:'nowrap' }}>{c.k}</td>
+                    <td style={{ padding:'5px 10px', color:'var(--text2)', lineHeight:1.5 }}>{c.desc ?? '—'}</td>
                   </tr>
                 ))}</tbody>
               </table>
@@ -513,7 +571,7 @@ function GoldCard() {
 
       {/* Tab switcher */}
       <div style={{ display:'flex', gap:4, marginBottom:12 }}>
-        {[{id:'data',label:`📊 Sample Data (10 rows · ${tbl.cols.length} fields)`},{id:'schema',label:`📋 Columns`}].map(t => (
+        {[{id:'data',label:`📊 Sample Data (10 rows · ${tbl.cols.length} fields)`},{id:'schema',label:`📋 Columns & Mô tả`}].map(t => (
           <button key={t.id} onClick={()=>setTab(t.id)} style={{
             padding:'5px 14px', borderRadius:'var(--radius)', cursor:'pointer', transition:'all 0.15s',
             border: tab===t.id ? `1px solid ${GOLD_COLOR.border}` : '1px solid var(--border)',
@@ -535,13 +593,13 @@ function GoldCard() {
             ? <SampleTable cols={tbl.cols} rows={tbl.rows} borderColor={GOLD_COLOR.border} />
             : (
               <table style={{ width:'100%', borderCollapse:'collapse', fontSize:11, fontFamily:'var(--mono)' }}>
-                <thead><tr>{['Column','Note'].map(h=>(
+                <thead><tr>{['Column','Mô tả'].map(h=>(
                   <th key={h} style={{ padding:'6px 10px', textAlign:'left', color:'var(--text3)', fontSize:10, fontWeight:700, letterSpacing:1, textTransform:'uppercase', borderBottom:'1px solid var(--border)' }}>{h}</th>
                 ))}</tr></thead>
                 <tbody>{tbl.cols.map(c=>(
                   <tr key={c.k} style={{ borderBottom:'1px solid rgba(255,255,255,0.04)' }}>
-                    <td style={{ padding:'5px 10px', color:'var(--accent)', fontWeight:600 }}>{c.k}</td>
-                    <td style={{ padding:'5px 10px', color:'var(--text3)' }}>—</td>
+                    <td style={{ padding:'5px 10px', color:'var(--accent)', fontWeight:600, whiteSpace:'nowrap' }}>{c.k}</td>
+                    <td style={{ padding:'5px 10px', color:'var(--text2)', lineHeight:1.5 }}>{c.desc ?? '—'}</td>
                   </tr>
                 ))}</tbody>
               </table>
@@ -566,7 +624,7 @@ export default function DataLayersTab() {
         <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
           {[
             { icon:'🟤', label:'Bronze', sub:'27 fields raw', color:{ bg:'rgba(180,83,9,0.10)', border:'#b45309', text:'#fbbf24' } },
-            { icon:'🥈', label:'Silver', sub:'27 fields clean', color:{ bg:'rgba(100,116,139,0.10)', border:'#64748b', text:'#cbd5e1' } },
+            { icon:'🥈', label:'Silver', sub:'23 fields clean', color:{ bg:'rgba(100,116,139,0.10)', border:'#64748b', text:'#cbd5e1' } },
             { icon:'🥇', label:'Gold',   sub:'4 tables', color:{ bg:'rgba(234,179,8,0.10)', border:'#ca8a04', text:'#fde047' } },
           ].map((m, i) => (
             <div key={m.label} style={{ display:'flex', alignItems:'center', gap:8 }}>
