@@ -1,15 +1,7 @@
-# railway.toml — đặt ở ROOT repo
+# railway.toml — đặt trong weather-dashboard/
 
 [build]
-builder = "nixpacks"
 buildCommand = "npm install && npm run build"
 
 [deploy]
 startCommand = "node server.cjs"
-restartPolicyType = "on_failure"
-
-[nixpacks]
-providers = ["node"]
-
-[deploy.envVars]
-NIXPACKS_APP_DIR = "weather-dashboard"
